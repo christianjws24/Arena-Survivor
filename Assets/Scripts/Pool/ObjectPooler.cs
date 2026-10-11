@@ -51,6 +51,35 @@ namespace ArenaSurvivor.Pool
 
             Instance = this;
             InitializePools();
+
+            // Contenido nuevo (Etapa 2, Mothership...) sin prefab asignado en la escena: se genera en runtime
+            Managers.RuntimeContentFactory.EnsureRuntimePools(this);
+        }
+
+        /// <summary>
+        /// Registra un pool en runtime (ej: plantillas procedurales). Ignora tags ya existentes.
+        /// La plantilla puede estar inactiva: sus clones se activan al salir del pool.
+        /// </summary>
+        public bool RegisterPool(string tag, GameObject template, int size, bool shouldExpand = true)
+        {
+            if (string.IsNullOrEmpty(tag) || template == null || _poolDictionary.ContainsKey(tag)) return false;
+
+            var pool = new Pool { tag = tag, prefab = template, size = Mathf.Max(1, size), shouldExpand = shouldExpand };
+            pools.Add(pool);
+
+            GameObject container = new GameObject($"Pool_{tag}");
+            container.transform.SetParent(transform);
+            _poolContainers[tag] = container.transform;
+            _poolConfigs[tag] = pool;
+
+            Queue<GameObject> objectQueue = new Queue<GameObject>(pool.size);
+            for (int i = 0; i < pool.size; i++)
+            {
+                objectQueue.Enqueue(CreateNewObjectForPool(pool, container.transform));
+            }
+
+            _poolDictionary.Add(tag, objectQueue);
+            return true;
         }
 
         /// <summary>
@@ -107,7 +136,14 @@ namespace ArenaSurvivor.Pool
         /// </summary>
         public bool HasPool(string tag)
         {
-            return _poolDictionary != null && _poolDictionary.ContainsKey(tag);
+            if (_poolDictionary == null) return false;
+            if (_poolDictionary.ContainsKey(tag)) return true;
+            if (tag == "Enemy_Grunt" && _poolDictionary.ContainsKey("Enemy_Red")) return true;
+            if (tag == "Enemy_Drone" && _poolDictionary.ContainsKey("Enemy_Yellow")) return true;
+            if (tag == "Enemy_Parasite" && _poolDictionary.ContainsKey("Enemy_Green")) return true;
+            if (tag == "Enemy_Carrier" && _poolDictionary.ContainsKey("Enemy_Blue")) return true;
+            if (tag == "EnemyLaser" && _poolDictionary.ContainsKey("EnemyBullet")) return true;
+            return false;
         }
 
         /// <summary>
@@ -117,8 +153,24 @@ namespace ArenaSurvivor.Pool
         {
             if (!_poolDictionary.TryGetValue(tag, out Queue<GameObject> objectQueue))
             {
-                Debug.LogWarning($"[ObjectPooler] No existe un pool registrado con el tag: '{tag}'. Asegúrate de agregarlo a la lista de Pools en el Inspector.");
-                return null;
+                // Fallbacks automáticos de compatibilidad
+                string fallbackTag = null;
+                if (tag == "Enemy_Grunt" && _poolDictionary.ContainsKey("Enemy_Red")) fallbackTag = "Enemy_Red";
+                else if (tag == "Enemy_Drone" && _poolDictionary.ContainsKey("Enemy_Yellow")) fallbackTag = "Enemy_Yellow";
+                else if (tag == "Enemy_Parasite" && _poolDictionary.ContainsKey("Enemy_Green")) fallbackTag = "Enemy_Green";
+                else if (tag == "Enemy_Carrier" && _poolDictionary.ContainsKey("Enemy_Blue")) fallbackTag = "Enemy_Blue";
+                else if (tag == "EnemyLaser" && _poolDictionary.ContainsKey("EnemyBullet")) fallbackTag = "EnemyBullet";
+
+                if (!string.IsNullOrEmpty(fallbackTag))
+                {
+                    tag = fallbackTag;
+                    objectQueue = _poolDictionary[fallbackTag];
+                }
+                else
+                {
+                    Debug.LogWarning($"[ObjectPooler] No existe un pool registrado con el tag: '{tag}'. Asegúrate de agregarlo a la lista de Pools en el Inspector.");
+                    return null;
+                }
             }
 
             GameObject objectToSpawn;

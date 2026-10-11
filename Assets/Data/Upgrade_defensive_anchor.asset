@@ -13,11 +13,12 @@ MonoBehaviour:
   m_Name: Upgrade_defensive_anchor
   m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Upgrades.UpgradeData
   id: defensive_anchor
-  upgradeName: Anclaje Defensivo
-  description: "Reduce el cooldown de fallar el Parry casi a cero mientras est\xE9s
-    en la Zona de Extracci\xF3n."
+  upgradeName: "Anclaje Defensivo"
+  description: "Cada 14s ancla una zona pequeña en tu posición durante 6s. Dentro de ella el cooldown del Parry es casi cero. Excluyente con Anclaje Ofensivo."
   maxLevel: 1
-  upgradeType: 2
-  exclusiveTag: 
+  upgradeType: 1
+  exclusiveTag: Anclaje
+  requiresAnyOf: []
+  isPassiveWeapon: 0
   icon: {fileID: 0}
   themeColor: {r: 0.9, g: 0.75, b: 0.2, a: 1}

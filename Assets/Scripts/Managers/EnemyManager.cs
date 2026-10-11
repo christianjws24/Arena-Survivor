@@ -50,6 +50,20 @@ namespace ArenaSurvivor.Managers
         [Tooltip("Tamaño de celda para la partición espacial (se recomienda 1.5x a 2x el radio)")]
         [SerializeField] private float cellSize = 1.6f;
 
+        [Header("Barrera Invisible de Jefes")]
+        [Tooltip("Margen extra alrededor de cada pieza visible de un jefe que los enemigos que caminan no pueden pisar")]
+        [SerializeField] private float bossBarrierPadding = 0.4f;
+
+        // Zonas elípticas (una por sprite visible del jefe: casco, escudo, cañones, generadores) recalculadas cada frame.
+        // Solo frenan a enemigos en persecución: los proyectiles desviados (Parry) sí pueden atravesarlas y golpear al jefe.
+        private struct BossBarrier
+        {
+            public Vector2 Center;
+            public Vector2 HalfSize;
+        }
+        private readonly System.Collections.Generic.List<BossBarrier> _bossBarriers = new System.Collections.Generic.List<BossBarrier>(32);
+        private readonly System.Collections.Generic.List<SpriteRenderer> _bossRendererBuffer = new System.Collections.Generic.List<SpriteRenderer>(32);
+
         // Array denso de enemigos activos contiguo en memoria
         private Enemy[] _activeEnemies;
         private int _activeCount;
@@ -60,6 +74,34 @@ namespace ArenaSurvivor.Managers
         private int[] _gridNext;
 
         public int ActiveEnemyCount => _activeCount;
+
+        /// <summary>
+        /// Cuenta los enemigos activos de un tipo (límites de población por tipo en las etapas).
+        /// </summary>
+        public int CountActiveOfType(Data.EnemyType type)
+        {
+            EnsureInitialized();
+            int count = 0;
+            for (int i = 0; i < _activeCount; i++)
+            {
+                Enemy e = _activeEnemies[i];
+                if (e != null && e.Data != null && e.Data.enemyType == type && e.CurrentState != EnemyState.Dead) count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Copia los enemigos activos a un buffer (para operaciones que modifican la lista, como limpiar la arena).
+        /// </summary>
+        public void GetActiveEnemies(System.Collections.Generic.List<Enemy> buffer)
+        {
+            EnsureInitialized();
+            buffer.Clear();
+            for (int i = 0; i < _activeCount; i++)
+            {
+                if (_activeEnemies[i] != null) buffer.Add(_activeEnemies[i]);
+            }
+        }
 
         private void EnsureInitialized()
         {
@@ -164,6 +206,9 @@ namespace ArenaSurvivor.Managers
                 _gridHead[hash] = i;
             }
 
+            // Zonas prohibidas de los jefes vivos (para que los enemigos no se superpongan visualmente con ellos)
+            RebuildBossBarriers();
+
             // 3. Evaluar separación y ejecutar Tick en cada enemigo (O(N * 9 celdas locales))
             float radiusSqr = separationRadius * separationRadius;
 
@@ -214,8 +259,74 @@ namespace ArenaSurvivor.Managers
                     }
                 }
 
+                // Empuje externo (Rail Gun) aplicado aparte del Tick para que lo respeten todos los enemigos
+                current.UpdateKnockback(dt);
+
                 // Invocación manual del Tick en lugar de 1,000 llamadas nativas a Update()
                 current.Tick(dt, playerPos, separation);
+
+                // Barrera invisible: los enemigos que caminan no pueden entrar en la zona de un jefe
+                if (_bossBarriers.Count > 0 && !current.IsBoss && current.CurrentState == EnemyState.Chasing)
+                {
+                    ResolveBossBarriers(current);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Una zona elíptica por cada sprite visible de cada jefe vivo (incluye escudo y partes).
+        /// </summary>
+        private void RebuildBossBarriers()
+        {
+            _bossBarriers.Clear();
+            for (int i = 0; i < _activeCount; i++)
+            {
+                Enemy enemy = _activeEnemies[i];
+                if (enemy == null || !(enemy is IShieldedBoss) || enemy.CurrentState == EnemyState.Dead) continue;
+
+                enemy.GetComponentsInChildren(false, _bossRendererBuffer);
+                for (int r = 0; r < _bossRendererBuffer.Count; r++)
+                {
+                    SpriteRenderer sr = _bossRendererBuffer[r];
+                    if (sr == null || !sr.enabled || sr.color.a < 0.05f) continue;
+
+                    Bounds b = sr.bounds;
+                    if (b.extents.x < 0.05f || b.extents.y < 0.05f) continue;
+                    _bossBarriers.Add(new BossBarrier { Center = b.center, HalfSize = b.extents });
+                }
+            }
+        }
+
+        /// <summary>
+        /// Saca al enemigo de cualquier zona de jefe en la que haya entrado, proyectándolo al borde de la elipse.
+        /// </summary>
+        private void ResolveBossBarriers(Enemy enemy)
+        {
+            Vector3 scale = enemy.transform.lossyScale;
+            float selfRadius = (Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y)) * 0.5f) + bossBarrierPadding;
+            Vector2 pos = enemy.transform.position;
+            bool moved = false;
+
+            // Dos pasadas por si al salir de una zona cae dentro de otra contigua
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int i = 0; i < _bossBarriers.Count; i++)
+                {
+                    BossBarrier barrier = _bossBarriers[i];
+                    Vector2 axes = barrier.HalfSize + new Vector2(selfRadius, selfRadius);
+                    Vector2 q = new Vector2((pos.x - barrier.Center.x) / axes.x, (pos.y - barrier.Center.y) / axes.y);
+                    float sqr = q.sqrMagnitude;
+                    if (sqr >= 1f) continue;
+
+                    q = sqr > 0.000001f ? q / Mathf.Sqrt(sqr) : Vector2.down;
+                    pos = barrier.Center + new Vector2(q.x * axes.x, q.y * axes.y);
+                    moved = true;
+                }
+            }
+
+            if (moved)
+            {
+                enemy.transform.position = new Vector3(pos.x, pos.y, enemy.transform.position.z);
             }
         }
 

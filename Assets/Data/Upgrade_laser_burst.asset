@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6da431d7905c1be4a983a546f502e860, type: 3}
+  m_Name: Upgrade_laser_burst
+  m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Upgrades.UpgradeData
+  id: laser_burst
+  upgradeName: "Laser Burst"
+  description: "Dispara 3 láseres pequeños que atraviesan enemigos (+15% del daño base). 3 cargas; al agotarlas recarga 6s (cada nivel lo reduce)."
+  maxLevel: 3
+  upgradeType: 3
+  exclusiveTag: 
+  requiresAnyOf: []
+  isPassiveWeapon: 0
+  icon: {fileID: 0}
+  themeColor: {r: 0.4, g: 1, b: 0.6, a: 1}

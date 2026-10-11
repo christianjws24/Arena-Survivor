@@ -10,8 +10,22 @@ namespace ArenaSurvivor.Data
         Yellow   // Especial / Acechador
     }
 
+    public enum EnemyType
+    {
+        Grunt,              // 1_Grunt: 100hp, avanza lento hacia el jugador
+        Drone,              // 2_Drone: 110hp, se mueve en círculos y dispara proyectil lento
+        Parasite,           // 3_Parasite: 70hp, avanza rápidamente hacia el jugador
+        Carrier,            // 4_Carrier: 500hp, aparece en pantalla y genera Grunts y Drones
+        BossCentinelMajoris, // BOSS 1_CUSTODIUS: nave con generadores, escudo de energía y láseres
+        Worm,               // 5_Worm: 200hp, aparecen 4 desde las 4 esquinas y avanzan a velocidad regular
+        Sentry,             // 6_Sentry: 400hp, fasea en pantalla, inmóvil, dispara 3 tiros (|/) cada 3s
+        Caballier,          // 7_Caballier: 300hp, zigzag rápido hacia el jugador, rebota y lanza tajo de energía
+        Sidewinder,         // 8_Sidewinder: 500hp, orbita, se detiene a disparar 2 proyectiles rápidos cada 4s
+        BossMothership      // BOSS 2_MOTHERSHIP: barre la parte superior con 5 armas y escudo de energía
+    }
+
     /// <summary>
-    /// Configuración de atributos y comportamiento de los enemigos según su color.
+    /// Configuración de atributos y comportamiento de los enemigos.
     /// Permite balancear estadísticas fácilmente sin modificar prefabs ni código.
     /// </summary>
     [CreateAssetMenu(fileName = "EnemyData_", menuName = "Arena Survivor/Enemy Data", order = 1)]
@@ -19,6 +33,7 @@ namespace ArenaSurvivor.Data
     {
         [Header("Identificación")]
         public string enemyName = "Basic Enemy";
+        public EnemyType enemyType = EnemyType.Grunt;
         public EnemyColorType colorType = EnemyColorType.Red;
         public Color spriteColor = Color.red;
 
@@ -48,7 +63,8 @@ namespace ArenaSurvivor.Data
         [Range(0.02f, 0.5f)]
         public float deathShakeDuration = 0.08f;
 
-        [Tooltip("Puntuación o experiencia otorgada al ser destruido")]
+        [Tooltip("Puntuación y experiencia otorgada al ser destruido. La energía/EXP que gana el jugador es proporcional: " +
+                 "10 = enemigo de referencia (Grunt), 20 = el doble, etc. (ver PlayerEnergy)")]
         public int scoreValue = 10;
     }
 }

@@ -34,21 +34,49 @@ namespace ArenaSurvivor.Editor
             Sprite capsuleSprite = GetOrCreateCapsuleSprite();
             Sprite ringSprite = GetOrCreateRingSprite();
 
-            // 2. Generar ScriptableObjects para los 4 colores de enemigos
-            EnemyData redData = GetOrCreateEnemyData("EnemyData_Red", EnemyColorType.Red, new Color(0.95f, 0.25f, 0.25f), 15f, 3.2f, 1, new Vector2(1f, 1f), 0.12f, 0.08f);
-            EnemyData greenData = GetOrCreateEnemyData("EnemyData_Green", EnemyColorType.Green, new Color(0.25f, 0.9f, 0.35f), 8f, 5.0f, 1, new Vector2(0.75f, 0.75f), 0.08f, 0.06f);
-            EnemyData blueData = GetOrCreateEnemyData("EnemyData_Blue", EnemyColorType.Blue, new Color(0.2f, 0.5f, 0.98f), 40f, 1.8f, 2, new Vector2(1.35f, 1.35f), 0.22f, 0.12f);
-            EnemyData yellowData = GetOrCreateEnemyData("EnemyData_Yellow", EnemyColorType.Yellow, new Color(0.98f, 0.85f, 0.15f), 22f, 3.8f, 1, new Vector2(0.9f, 0.9f), 0.16f, 0.09f);
+            // 2. Generar ScriptableObjects para los Nuevos Enemigos según Especificaciones
+            // 1_Grunt: 100hp, avanza lento hacia el jugador
+            EnemyData gruntData = GetOrCreateEnemyDataWithDetails("EnemyData_Grunt", "Grunt", EnemyType.Grunt, EnemyColorType.Red, new Color(0.95f, 0.25f, 0.25f), 100f, 2.4f, 1, new Vector2(1f, 1f), 0.12f, 0.08f);
+            // 2_Drone: 110hp, círculos y proyectil lento
+            EnemyData droneData = GetOrCreateEnemyDataWithDetails("EnemyData_Drone", "Drone", EnemyType.Drone, EnemyColorType.Yellow, new Color(0.98f, 0.75f, 0.15f), 110f, 3.2f, 1, new Vector2(0.9f, 0.9f), 0.14f, 0.09f);
+            // 3_Parasite: 70hp, rápido hacia el jugador
+            EnemyData parasiteData = GetOrCreateEnemyDataWithDetails("EnemyData_Parasite", "Parasite", EnemyType.Parasite, EnemyColorType.Green, new Color(0.25f, 0.95f, 0.35f), 70f, 5.8f, 1, new Vector2(0.75f, 0.75f), 0.08f, 0.06f);
+            // 4_Carrier: 500hp, se desmaterializa en pantalla y genera Grunts y Drones
+            EnemyData carrierData = GetOrCreateEnemyDataWithDetails("EnemyData_Carrier", "Carrier", EnemyType.Carrier, EnemyColorType.Blue, new Color(0.35f, 0.25f, 0.85f), 500f, 1.2f, 1, new Vector2(2.2f, 2.2f), 0.25f, 0.15f);
+            // BOSS 1_CUSTODIUS: 1500hp esfera central, generadores y escudo
+            EnemyData bossData = GetOrCreateEnemyDataWithDetails("EnemyData_CentinelMajoris", "Custodius", EnemyType.BossCentinelMajoris, EnemyColorType.Red, new Color(0.85f, 0.15f, 0.35f), 1500f, 2.2f, 1, new Vector2(1.5f, 1.5f), 0.6f, 0.4f);
 
-            // 3. Generar ScriptableObjects de Mejoras (10 Power-Ups de la Arquitectura Escalable)
+            // Mantener datos heredados para compatibilidad
+            GetOrCreateEnemyData("EnemyData_Red", EnemyColorType.Red, new Color(0.95f, 0.25f, 0.25f), 100f, 2.4f, 1, new Vector2(1f, 1f), 0.12f, 0.08f);
+            GetOrCreateEnemyData("EnemyData_Green", EnemyColorType.Green, new Color(0.25f, 0.9f, 0.35f), 70f, 5.8f, 1, new Vector2(0.75f, 0.75f), 0.08f, 0.06f);
+            GetOrCreateEnemyData("EnemyData_Blue", EnemyColorType.Blue, new Color(0.2f, 0.5f, 0.98f), 500f, 1.2f, 2, new Vector2(2.2f, 2.2f), 0.25f, 0.15f);
+            GetOrCreateEnemyData("EnemyData_Yellow", EnemyColorType.Yellow, new Color(0.98f, 0.85f, 0.15f), 110f, 3.2f, 1, new Vector2(0.9f, 0.9f), 0.14f, 0.09f);
+
+            // 3. Generar ScriptableObjects de Mejoras (Excluyendo las de Zona de Extracción descartadas)
             CreateAllPrototypeUpgrades();
 
             // 4. Generar Prefabs en Assets/Prefabs
             GameObject bulletPrefab = CreateBulletPrefab(capsuleSprite);
-            GameObject redEnemyPrefab = CreateEnemyPrefab("Enemy_Red", squareSprite, redData);
-            GameObject greenEnemyPrefab = CreateEnemyPrefab("Enemy_Green", squareSprite, greenData);
-            GameObject blueEnemyPrefab = CreateEnemyPrefab("Enemy_Blue", squareSprite, blueData);
-            GameObject yellowEnemyPrefab = CreateEnemyPrefab("Enemy_Yellow", squareSprite, yellowData);
+            GameObject gruntPrefab = CreateEnemyPrefab("Enemy_Grunt", squareSprite, gruntData);
+            GameObject dronePrefab = CreateDronePrefab("Enemy_Drone", squareSprite, droneData);
+            GameObject parasitePrefab = CreateEnemyPrefab("Enemy_Parasite", squareSprite, parasiteData);
+            GameObject carrierPrefab = CreateCarrierPrefab("Enemy_Carrier", squareSprite, carrierData);
+            GameObject bossPrefab = CreateBossPrefab("Boss_CentinelMajoris", circleSprite, capsuleSprite, ringSprite, bossData);
+            GameObject enemyBulletPrefab = CreateEnemyBulletPrefab(circleSprite);
+            GameObject enemyLaserPrefab = CreateEnemyLaserPrefab(capsuleSprite);
+
+            // Prefabs de compatibilidad
+            CreateEnemyPrefab("Enemy_Red", squareSprite, gruntData);
+            CreateEnemyPrefab("Enemy_Green", squareSprite, parasiteData);
+            CreateEnemyPrefab("Enemy_Blue", squareSprite, carrierData);
+            CreateEnemyPrefab("Enemy_Yellow", squareSprite, droneData);
+
+            // Etapa 2 (Worm, Sentry, Caballier, Sidewinder) y Boss Mothership: mismas definiciones que RuntimeContentFactory
+            foreach (RuntimeContentFactory.EnemySpec spec in RuntimeContentFactory.Specs)
+            {
+                CreateStageEnemyPrefab(spec, spec.CircleSprite ? circleSprite : squareSprite);
+            }
+
             GameObject playerPrefab = CreatePlayerPrefab(circleSprite, ringSprite);
             GameObject deathVFXPrefab = CreateDeathVFXPrefab();
             GameObject extractionZonePrefab = CreateExtractionZonePrefab(circleSprite);
@@ -57,7 +85,7 @@ namespace ArenaSurvivor.Editor
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
-            Debug.Log("<color=green><b>[ArenaPrototypeSetup]</b> Prefabs y ScriptableObjects generados correctamente.</color>");
+            Debug.Log("<color=green><b>[ArenaPrototypeSetup]</b> Prefabs y ScriptableObjects de los nuevos enemigos generados correctamente.</color>");
         }
 
         [MenuItem("Tools/Arena Survivor/2. Configurar Escena de Prueba Automáticamente")]
@@ -137,14 +165,28 @@ namespace ArenaSurvivor.Editor
             }
 
             AddPoolEntry("PlayerBullet", "PlayerBullet", 40);
-            AddPoolEntry("Enemy_Red", "Enemy_Red", 30);
-            AddPoolEntry("Enemy_Green", "Enemy_Green", 30);
-            AddPoolEntry("Enemy_Blue", "Enemy_Blue", 15);
-            AddPoolEntry("Enemy_Yellow", "Enemy_Yellow", 20);
-            AddPoolEntry("DeathVFX", "DeathVFX", 30);
-            AddPoolEntry("ExtractionZone", "ExtractionZone", 3);
+            AddPoolEntry("Enemy_Grunt", "Enemy_Grunt", 35);
+            AddPoolEntry("Enemy_Drone", "Enemy_Drone", 25);
+            AddPoolEntry("Enemy_Parasite", "Enemy_Parasite", 30);
+            AddPoolEntry("Enemy_Carrier", "Enemy_Carrier", 10);
+            AddPoolEntry("Boss_CentinelMajoris", "Boss_CentinelMajoris", 2);
+            AddPoolEntry("EnemyBullet", "EnemyBullet", 35);
+            AddPoolEntry("EnemyLaser", "EnemyLaser", 35);
+            AddPoolEntry("DeathVFX", "DeathVFX", 40);
             AddPoolEntry("ShockwaveVFX", "ShockwaveVFX", 10);
             AddPoolEntry("BlackHole", "BlackHole", 10);
+
+            // Etapa 2 y Boss Mothership
+            foreach (RuntimeContentFactory.EnemySpec spec in RuntimeContentFactory.Specs)
+            {
+                AddPoolEntry(spec.PoolTag, spec.PoolTag, spec.PoolSize);
+            }
+
+            // Pools de compatibilidad para escenas o referencias existentes
+            AddPoolEntry("Enemy_Red", "Enemy_Red", 15);
+            AddPoolEntry("Enemy_Green", "Enemy_Green", 15);
+            AddPoolEntry("Enemy_Blue", "Enemy_Blue", 10);
+            AddPoolEntry("Enemy_Yellow", "Enemy_Yellow", 10);
             poolerSO.ApplyModifiedProperties();
 
             // 6. Asegurar PlayerEnergy, SatelliteOrbitController y PlayerVFXController en el Player
@@ -181,11 +223,15 @@ namespace ArenaSurvivor.Editor
             if (upList != null)
             {
                 upList.ClearArray();
+                // Descartada: scorched_earth (dependía de la Zona de Extracción)
                 string[] upgradeKeys = {
-                    "pierce", "bounce", "satellite", "vampirism", "scorched_earth",
-                    "chain_reaction", "parry_dash", "mirror_refractor", "defensive_anchor", "stasis_nova",
+                    "pierce", "bounce", "satellite", "vampirism",
+                    "chain_reaction", "parry_dash", "mirror_refractor",
                     "chain_reflexes", "geometric_shrapnel", "mass_transposition", "gravitational_anomaly",
-                    "overclock", "heavy_caliber", "servomotors", "rapid_parry"
+                    "overclock", "heavy_caliber", "servomotors", "rapid_parry", "expansive_parry",
+                    "defensive_anchor", "ofensive_anchor", "stasis_nova",
+                    // Armas (botín de jefes)
+                    "energy_shield", "laser_burst", "rail_gun", "fan_shot", "laser_shotgun"
                 };
 
                 foreach (string key in upgradeKeys)
@@ -225,6 +271,8 @@ namespace ArenaSurvivor.Editor
                 waveMgr = waveGo.AddComponent<WaveManager>();
                 Undo.RegisterCreatedObjectUndo(waveGo, "Crear WaveManager");
             }
+            // Las etapas del Demo se generan por defecto si la lista 'stages' está vacía
+            // (clic derecho en el componente > "Restaurar etapas por defecto del Demo" para editarlas en el Inspector)
 
             // 9. Localizar o crear HitStopManager
 #if UNITY_2023_1_OR_NEWER
@@ -305,7 +353,8 @@ namespace ArenaSurvivor.Editor
                 "• UI de Notificación de Mejoras (top-center / top-right) al activarse\n" +
                 "• UI de Barra de Energía y Protocolo de Extracción (bottom-center)\n" +
                 "• ObjectPooler con balas, 4 enemigos, DeathVFX y ExtractionZone\n" +
-                "• UpgradeManager con los 10 Power-Ups de la arquitectura escalable\n\n" +
+                "• Etapa 2 (Worm, Sentry, Caballier, Sidewinder) y Boss Mothership\n" +
+                "• UpgradeManager con Power-Ups, Anclajes y armas de jefe (H/J/K/L)\n\n" +
                 "¡Presiona PLAY en Unity para probar el prototipo!",
                 "¡A Jugar!"
             );
@@ -470,6 +519,65 @@ namespace ArenaSurvivor.Editor
             return data;
         }
 
+        private static EnemyData GetOrCreateEnemyDataWithDetails(
+            string assetName,
+            string enemyName,
+            EnemyType enemyType,
+            EnemyColorType colorType,
+            Color color,
+            float health,
+            float speed,
+            int damage,
+            Vector2 scale,
+            float shakeIntensity,
+            float shakeDuration)
+        {
+            string path = $"{DataFolder}/{assetName}.asset";
+            EnemyData data = AssetDatabase.LoadAssetAtPath<EnemyData>(path);
+            if (data == null)
+            {
+                data = ScriptableObject.CreateInstance<EnemyData>();
+                AssetDatabase.CreateAsset(data, path);
+            }
+            data.enemyName = enemyName;
+            data.enemyType = enemyType;
+            data.colorType = colorType;
+            data.spriteColor = color;
+            data.maxHealth = health;
+            data.moveSpeed = speed;
+            data.damage = damage;
+            data.visualScale = scale;
+            data.deathShakeIntensity = shakeIntensity;
+            data.deathShakeDuration = shakeDuration;
+            EditorUtility.SetDirty(data);
+            return data;
+        }
+
+        /// <summary>
+        /// Guarda en disco el EnemyData (solo si no existe, para no pisar ajustes de diseño) y el prefab de un enemigo nuevo.
+        /// </summary>
+        private static GameObject CreateStageEnemyPrefab(RuntimeContentFactory.EnemySpec spec, Sprite bodySprite)
+        {
+            string dataPath = $"{DataFolder}/{spec.DataAssetName}.asset";
+            EnemyData data = AssetDatabase.LoadAssetAtPath<EnemyData>(dataPath);
+            if (data == null)
+            {
+                data = RuntimeContentFactory.CreateEnemyData(spec);
+                AssetDatabase.CreateAsset(data, dataPath);
+            }
+
+            GameObject go = RuntimeContentFactory.BuildEnemy(spec, data, true);
+            if (go.TryGetComponent(out SpriteRenderer sr))
+            {
+                sr.sprite = bodySprite; // sprite en disco (los procedurales no se pueden serializar en un prefab)
+            }
+
+            string prefabPath = $"{PrefabsFolder}/{spec.PoolTag}.prefab";
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
+            Object.DestroyImmediate(go);
+            return prefab;
+        }
+
         private static GameObject CreatePlayerPrefab(Sprite circleSprite, Sprite ringSprite)
         {
             string prefabPath = $"{PrefabsFolder}/Player.prefab";
@@ -550,7 +658,11 @@ namespace ArenaSurvivor.Editor
             col.isTrigger = true;
             col.radius = 0.25f;
 
-            go.AddComponent<Projectile>();
+            Projectile proj = go.AddComponent<Projectile>();
+            SerializedObject projSO = new SerializedObject(proj);
+            projSO.FindProperty("baseDamage").floatValue = 35f;
+            projSO.FindProperty("damage").floatValue = 35f;
+            projSO.ApplyModifiedProperties();
 
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
             Object.DestroyImmediate(go);
@@ -581,6 +693,210 @@ namespace ArenaSurvivor.Editor
 
             Enemy enemy = go.AddComponent<Enemy>();
             enemy.SetData(data);
+
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
+            Object.DestroyImmediate(go);
+            return prefab;
+        }
+
+        private static GameObject CreateDronePrefab(string name, Sprite squareSprite, EnemyData data)
+        {
+            string prefabPath = $"{PrefabsFolder}/{name}.prefab";
+            GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (existing != null) return existing;
+
+            GameObject go = new GameObject(name);
+            go.tag = "Enemy";
+
+            SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = squareSprite;
+            sr.color = data != null ? data.spriteColor : new Color(0.98f, 0.75f, 0.15f);
+            sr.sortingOrder = 3;
+
+            BoxCollider2D col = go.AddComponent<BoxCollider2D>();
+            col.size = Vector2.one;
+            col.isTrigger = true;
+
+            Rigidbody2D rb = go.AddComponent<Rigidbody2D>();
+            rb.bodyType = RigidbodyType2D.Kinematic;
+            rb.useFullKinematicContacts = true;
+
+            DroneEnemy drone = go.AddComponent<DroneEnemy>();
+            drone.SetData(data);
+
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
+            Object.DestroyImmediate(go);
+            return prefab;
+        }
+
+        private static GameObject CreateCarrierPrefab(string name, Sprite squareSprite, EnemyData data)
+        {
+            string prefabPath = $"{PrefabsFolder}/{name}.prefab";
+            GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (existing != null) return existing;
+
+            GameObject go = new GameObject(name);
+            go.tag = "Enemy";
+
+            SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = squareSprite;
+            sr.color = data != null ? data.spriteColor : new Color(0.35f, 0.25f, 0.85f);
+            sr.sortingOrder = 3;
+
+            BoxCollider2D col = go.AddComponent<BoxCollider2D>();
+            col.size = Vector2.one;
+            col.isTrigger = true;
+
+            Rigidbody2D rb = go.AddComponent<Rigidbody2D>();
+            rb.bodyType = RigidbodyType2D.Kinematic;
+            rb.useFullKinematicContacts = true;
+
+            CarrierEnemy carrier = go.AddComponent<CarrierEnemy>();
+            carrier.SetData(data);
+
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
+            Object.DestroyImmediate(go);
+            return prefab;
+        }
+
+        private static GameObject CreateBossPrefab(string name, Sprite circleSprite, Sprite capsuleSprite, Sprite ringSprite, EnemyData data)
+        {
+            string prefabPath = $"{PrefabsFolder}/{name}.prefab";
+            GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (existing != null) return existing;
+
+            GameObject go = new GameObject(name);
+            go.tag = "Enemy";
+
+            // Esfera Central (Núcleo 1500 HP)
+            SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = circleSprite;
+            sr.color = data != null ? data.spriteColor : new Color(0.85f, 0.15f, 0.35f);
+            sr.sortingOrder = 4;
+
+            CircleCollider2D col = go.AddComponent<CircleCollider2D>();
+            col.radius = 0.75f;
+            col.isTrigger = true;
+
+            Rigidbody2D rb = go.AddComponent<Rigidbody2D>();
+            rb.bodyType = RigidbodyType2D.Kinematic;
+            rb.useFullKinematicContacts = true;
+
+            BossCentinelMajoris boss = go.AddComponent<BossCentinelMajoris>();
+            boss.SetData(data);
+
+            // Generador Izquierdo
+            GameObject leftGenGo = new GameObject("LeftGenerator");
+            leftGenGo.transform.SetParent(go.transform);
+            leftGenGo.transform.localPosition = new Vector3(-1.8f, 0f, 0f);
+            leftGenGo.transform.localScale = new Vector3(1.1f, 2.4f, 1f);
+
+            SpriteRenderer leftSr = leftGenGo.AddComponent<SpriteRenderer>();
+            leftSr.sprite = capsuleSprite;
+            leftSr.color = new Color(0.2f, 0.8f, 1f, 1f);
+            leftSr.sortingOrder = 3;
+
+            BoxCollider2D leftCol = leftGenGo.AddComponent<BoxCollider2D>();
+            leftCol.size = new Vector2(0.8f, 1.8f);
+            leftCol.isTrigger = true;
+
+            BossShieldGeneratorPart leftPart = leftGenGo.AddComponent<BossShieldGeneratorPart>();
+
+            // Generador Derecho
+            GameObject rightGenGo = new GameObject("RightGenerator");
+            rightGenGo.transform.SetParent(go.transform);
+            rightGenGo.transform.localPosition = new Vector3(1.8f, 0f, 0f);
+            rightGenGo.transform.localScale = new Vector3(1.1f, 2.4f, 1f);
+
+            SpriteRenderer rightSr = rightGenGo.AddComponent<SpriteRenderer>();
+            rightSr.sprite = capsuleSprite;
+            rightSr.color = new Color(0.2f, 0.8f, 1f, 1f);
+            rightSr.sortingOrder = 3;
+
+            BoxCollider2D rightCol = rightGenGo.AddComponent<BoxCollider2D>();
+            rightCol.size = new Vector2(0.8f, 1.8f);
+            rightCol.isTrigger = true;
+
+            BossShieldGeneratorPart rightPart = rightGenGo.AddComponent<BossShieldGeneratorPart>();
+
+            // Visual del Escudo de Energía
+            GameObject shieldGo = new GameObject("EnergyShieldVisual");
+            shieldGo.transform.SetParent(go.transform);
+            shieldGo.transform.localPosition = Vector3.zero;
+            shieldGo.transform.localScale = new Vector3(4.8f, 4.8f, 1f);
+
+            SpriteRenderer shieldSr = shieldGo.AddComponent<SpriteRenderer>();
+            shieldSr.sprite = ringSprite;
+            shieldSr.color = new Color(0.2f, 0.9f, 1f, 0.65f);
+            shieldSr.sortingOrder = 5;
+
+            CircleCollider2D shieldCol = shieldGo.AddComponent<CircleCollider2D>();
+            shieldCol.radius = 0.5f;
+            shieldCol.isTrigger = true;
+
+            BossEnergyShieldPart shieldPart = shieldGo.AddComponent<BossEnergyShieldPart>();
+            shieldPart.Initialize(boss);
+
+            SerializedObject bossSO = new SerializedObject(boss);
+            bossSO.FindProperty("leftGenerator").objectReferenceValue = leftPart;
+            bossSO.FindProperty("rightGenerator").objectReferenceValue = rightPart;
+            bossSO.FindProperty("energyShieldVisual").objectReferenceValue = shieldGo;
+            bossSO.FindProperty("energyShieldRenderer").objectReferenceValue = shieldSr;
+            bossSO.ApplyModifiedProperties();
+
+            leftPart.Initialize(boss, true);
+            rightPart.Initialize(boss, false);
+
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
+            Object.DestroyImmediate(go);
+            return prefab;
+        }
+
+        private static GameObject CreateEnemyBulletPrefab(Sprite circleSprite)
+        {
+            string prefabPath = $"{PrefabsFolder}/EnemyBullet.prefab";
+            GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (existing != null) return existing;
+
+            GameObject go = new GameObject("EnemyBullet");
+            SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = circleSprite;
+            sr.color = new Color(1f, 0.55f, 0.15f);
+            sr.sortingOrder = 4;
+            go.transform.localScale = new Vector3(0.5f, 0.5f, 1f);
+
+            CircleCollider2D col = go.AddComponent<CircleCollider2D>();
+            col.isTrigger = true;
+            col.radius = 0.25f;
+
+            go.AddComponent<EnemyProjectile>();
+
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
+            Object.DestroyImmediate(go);
+            return prefab;
+        }
+
+        private static GameObject CreateEnemyLaserPrefab(Sprite capsuleSprite)
+        {
+            string prefabPath = $"{PrefabsFolder}/EnemyLaser.prefab";
+            GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (existing != null) return existing;
+
+            GameObject go = new GameObject("EnemyLaser");
+            SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = capsuleSprite;
+            sr.color = new Color(1f, 0.2f, 0.35f);
+            sr.sortingOrder = 4;
+            go.transform.localScale = new Vector3(1.2f, 0.35f, 1f);
+
+            CircleCollider2D col = go.AddComponent<CircleCollider2D>();
+            col.isTrigger = true;
+            col.radius = 0.25f;
+
+            EnemyProjectile proj = go.AddComponent<EnemyProjectile>();
+            SerializedObject projSO = new SerializedObject(proj);
+            projSO.FindProperty("visual").enumValueIndex = (int)EnemyProjectile.BulletVisual.Laser;
+            projSO.ApplyModifiedPropertiesWithoutUndo();
 
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
             Object.DestroyImmediate(go);
@@ -664,32 +980,42 @@ namespace ArenaSurvivor.Editor
             // Power-Ups canónicos del sistema escalable:
             // Stackables (Escalables con el nivel)
             GetOrCreateUpgrade("pierce", "Balística Perforante", "+1 enemigo atravesado por nivel.", 5, UpgradeType.StatModifier, new Color(1f, 0.85f, 0.2f));
-            GetOrCreateUpgrade("bounce", "Geometría de Rebote", "+1 rebote en las paredes de la arena por nivel.", 4, UpgradeType.StatModifier, new Color(0.2f, 0.8f, 1f));
+            GetOrCreateUpgrade("bounce", "Geometría de Rebote", "Tus disparos rebotan hacia un enemigo cercano tras impactar: +1 rebote por nivel.", 4, UpgradeType.StatModifier, new Color(0.2f, 0.8f, 1f));
             GetOrCreateUpgrade("satellite", "Módulo Satélite", "+1 orbe orbitando al jugador por nivel.", 4, UpgradeType.BehaviorUnlock, new Color(0.3f, 1f, 0.6f));
-            GetOrCreateUpgrade("vampirism", "Vampirismo Rítmico", "Requiere 3 parrys seguidos al Nivel 1. Cada nivel extra reduce el requerimiento o aumenta la curación.", 3, UpgradeType.BehaviorUnlock, new Color(0.95f, 0.25f, 0.35f));
-            GetOrCreateUpgrade("scorched_earth", "Tierra Calcinada", "Nivel 1 activa el daño en la Zona de Extracción. Niveles extra aumentan el DPS.", 5, UpgradeType.ZoneModifier, new Color(1f, 0.45f, 0.1f));
+            GetOrCreateUpgrade("vampirism", "Vampirismo Rítmico", "Cada 5 Parries exitosos seguidos recuperas 1 vida. Mejora única y rara.", 1, UpgradeType.BehaviorUnlock, new Color(0.95f, 0.25f, 0.35f), rarity: UpgradeRarity.Rare);
 
             // Binarias / Comportamiento (Nivel Máximo 1 o 2)
-            GetOrCreateUpgrade("chain_reaction", "Relevo Técnico", "El enemigo desviado convierte a otros en proyectiles aliados al impactar.", 1, UpgradeType.BehaviorUnlock, new Color(0.85f, 0.3f, 1f));
+            GetOrCreateUpgrade("chain_reaction", "Relevo Técnico", "Nv1: el enemigo desviado empuja como proyectiles aliados a los que golpea. Nv2: los empujados reciben daño por ticks. Nv3: además explotan al final del empuje (300 de daño fijo).", 3, UpgradeType.BehaviorUnlock, new Color(0.85f, 0.3f, 1f));
             GetOrCreateUpgrade("parry_dash", "Desvío Espectral", "El Parry otorga un dash invulnerable automático.", 1, UpgradeType.BehaviorUnlock, new Color(0.3f, 0.9f, 1f), "Parry_Comportamiento");
             GetOrCreateUpgrade("mirror_refractor", "Espejo Refractor", "El enemigo desviado se divide en 3 proyectiles más pequeños (hasta 5 en Nivel 2).", 2, UpgradeType.BehaviorUnlock, new Color(0.6f, 0.7f, 1f));
-            GetOrCreateUpgrade("defensive_anchor", "Anclaje Defensivo", "Reduce el cooldown de fallar el Parry casi a cero mientras estés en la Zona de Extracción.", 1, UpgradeType.ZoneModifier, new Color(0.9f, 0.75f, 0.2f));
-            GetOrCreateUpgrade("stasis_nova", "Estallido Nova", "Cambia la explosión final de la extracción por una que aplica ralentización (Estasis) masiva.", 1, UpgradeType.ZoneModifier, new Color(0.2f, 0.6f, 1f));
 
             // 4 Nuevos Power-Ups de Parry y Exclusión
             GetOrCreateUpgrade("chain_reflexes", "Reflejos en Cadena", "Al acertar un Parry, otorga un buff de 2s que amplía la ventana activa del próximo Parry en un 50%.", 3, UpgradeType.StatModifier, new Color(0.25f, 0.95f, 0.6f));
             GetOrCreateUpgrade("geometric_shrapnel", "Metralla Geométrica", "Cuando un enemigo desviado choca y se destruye, libera 6 proyectiles en abanico circular de 360°.", 3, UpgradeType.BehaviorUnlock, new Color(1f, 0.85f, 0.1f));
             GetOrCreateUpgrade("mass_transposition", "Transposición de Masa", "Reemplaza el Efecto Billar: Intercambias posición con el enemigo y este explota instantáneamente en tu lugar de origen.", 1, UpgradeType.BehaviorUnlock, new Color(0.95f, 0.2f, 0.85f), "Parry_Comportamiento");
-            GetOrCreateUpgrade("gravitational_anomaly", "Anomalía Gravitacional", "Al acertar un Parry, crea un vórtice en el punto de impacto que atrae a los enemigos cercanos durante 3 segundos.", 3, UpgradeType.ZoneModifier, new Color(0.6f, 0.2f, 1f));
+            GetOrCreateUpgrade("gravitational_anomaly", "Anomalía Gravitacional", "Al acertar un Parry, crea un vórtice que atrae y daña por ticks a los enemigos cercanos durante 3s (+1s, más radio y más daño por nivel). Nv2 destruye Worms; Nv3 también daña torretas y naves pesadas.", 3, UpgradeType.BehaviorUnlock, new Color(0.72f, 1f, 0.12f));
 
             // 4 Mejoras de Estadísticas Base (Stat Modifiers)
             GetOrCreateUpgrade("overclock", "Overclock", "Reduce el cooldown del disparo automático en un 10% por nivel.", 5, UpgradeType.StatModifier, new Color(1f, 0.82f, 0.2f));
             GetOrCreateUpgrade("heavy_caliber", "Calibre Pesado", "Aumenta el daño base de los proyectiles y de colisión del Parry en un 20% por nivel.", 5, UpgradeType.StatModifier, new Color(1f, 0.35f, 0.2f));
             GetOrCreateUpgrade("servomotors", "Servomotores", "Aumenta la velocidad de movimiento del jugador en un 10% por nivel.", 5, UpgradeType.StatModifier, new Color(0.2f, 0.9f, 0.45f));
             GetOrCreateUpgrade("rapid_parry", "Reflejos Cinéticos", "Reduce el tiempo de enfriamiento (cooldown) del Parry en un 20% por nivel.", 4, UpgradeType.StatModifier, new Color(0.18f, 0.85f, 1f));
+            GetOrCreateUpgrade("expansive_parry", "Parry Expansivo", "+20% de radio del Parry por nivel.", 3, UpgradeType.StatModifier, new Color(0.3f, 1f, 0.85f));
+
+            // Anclajes (zona pequeña anclada en tu posición cada 14s durante 6s) y su remate
+            GetOrCreateUpgrade("defensive_anchor", "Anclaje Defensivo", "Cada 14s ancla una zona pequeña en tu posición durante 6s. Dentro de ella el cooldown del Parry es casi cero. Excluyente con Anclaje Ofensivo.", 1, UpgradeType.BehaviorUnlock, new Color(0.9f, 0.75f, 0.2f), "Anclaje");
+            GetOrCreateUpgrade("ofensive_anchor", "Anclaje Ofensivo", "Cada 14s ancla una zona pequeña en tu posición durante 6s. Dentro de ella tú y los enemigos tienen +50% de daño y cadencia de disparo. Excluyente con Anclaje Defensivo.", 1, UpgradeType.BehaviorUnlock, new Color(1f, 0.35f, 0.3f), "Anclaje");
+            GetOrCreateUpgrade("stasis_nova", "Estallido Nova", "Al terminar la zona de un Anclaje, explota y ralentiza masivamente a los enemigos cercanos. Requiere un Anclaje.", 1, UpgradeType.BehaviorUnlock, new Color(0.2f, 0.6f, 1f), "", new[] { "defensive_anchor", "ofensive_anchor" });
+
+            // Armas: solo se obtienen como botín de jefe; después sus niveles aparecen en las subidas de nivel
+            GetOrCreateUpgrade("energy_shield", "Energy Shield", "Escudo automático que absorbe un golpe. Se reactiva en 60s (cada nivel reduce 3s).", 5, UpgradeType.Weapon, new Color(0.25f, 0.85f, 1f), "", null, true);
+            GetOrCreateUpgrade("laser_burst", "Laser Burst", "Dispara 3 láseres pequeños que atraviesan enemigos (+15% del daño base). 3 cargas; al agotarlas recarga 6s (cada nivel lo reduce).", 3, UpgradeType.Weapon, new Color(0.4f, 1f, 0.6f));
+            GetOrCreateUpgrade("rail_gun", "Rail Gun", "Rayo grueso que cruza toda la pantalla hacia donde miras (+300% del daño base) y empuja a los enemigos; a ti te empuja hacia atrás. 2 cargas; al agotarlas recarga 20s (cada nivel lo reduce).", 3, UpgradeType.Weapon, new Color(1f, 0.25f, 0.9f));
+            GetOrCreateUpgrade("fan_shot", "Fan Shot", "Ráfaga de proyectiles en abanico de 180° hacia donde miras (100% del daño base). 3 cargas; al agotarlas recarga 6s (cada nivel lo reduce).", 3, UpgradeType.Weapon, new Color(1f, 0.8f, 0.2f));
+            GetOrCreateUpgrade("laser_shotgun", "Laser Shotgun", "6 láseres muy juntos (-25% del daño base c/u). Pierden daño con la distancia: a quemarropa los 6 juntos son devastadores. 4 cargas; al agotarlas recarga 5s (cada nivel lo reduce).", 3, UpgradeType.Weapon, new Color(1f, 0.5f, 0.15f));
         }
 
-        private static UpgradeData GetOrCreateUpgrade(string id, string name, string description, int maxLevel, UpgradeType type, Color color, string exclusiveTag = "")
+        private static UpgradeData GetOrCreateUpgrade(string id, string name, string description, int maxLevel, UpgradeType type, Color color, string exclusiveTag = "", string[] requiresAnyOf = null, bool isPassiveWeapon = false, UpgradeRarity rarity = UpgradeRarity.Common)
         {
             string path = $"{DataFolder}/Upgrade_{id}.asset";
             UpgradeData up = AssetDatabase.LoadAssetAtPath<UpgradeData>(path);
@@ -703,6 +1029,9 @@ namespace ArenaSurvivor.Editor
                 up.upgradeType = type;
                 up.themeColor = color;
                 up.exclusiveTag = exclusiveTag;
+                up.requiresAnyOf = requiresAnyOf ?? new string[0];
+                up.isPassiveWeapon = isPassiveWeapon;
+                up.rarity = rarity;
                 AssetDatabase.CreateAsset(up, path);
             }
             else
@@ -714,6 +1043,9 @@ namespace ArenaSurvivor.Editor
                 up.upgradeType = type;
                 up.themeColor = color;
                 up.exclusiveTag = exclusiveTag;
+                up.requiresAnyOf = requiresAnyOf ?? new string[0];
+                up.isPassiveWeapon = isPassiveWeapon;
+                up.rarity = rarity;
                 EditorUtility.SetDirty(up);
             }
             return up;

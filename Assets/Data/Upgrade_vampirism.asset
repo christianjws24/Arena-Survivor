@@ -14,9 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Upgrades.UpgradeData
   id: vampirism
   upgradeName: "Vampirismo R\xEDtmico"
-  description: "Requiere 3 parrys seguidos al Nivel 1. Cada nivel extra reduce el
-    requerimiento o aumenta la curaci\xF3n."
-  maxLevel: 3
+  description: "Cada 5 Parries exitosos seguidos recuperas 1 vida. Mejora \xFAnica y rara."
+  maxLevel: 1
+  rarity: 1
   upgradeType: 1
   exclusiveTag: 
   icon: {fileID: 0}

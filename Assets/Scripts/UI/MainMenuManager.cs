@@ -51,11 +51,232 @@ namespace ArenaSurvivor.UI
                 quitButton.onClick.RemoveAllListeners();
                 quitButton.onClick.AddListener(OnQuitClicked);
             }
+
+            // Navegación con teclado: el botón Jugar queda seleccionado (flechas + Enter)
+            if (playButton != null && UnityEngine.EventSystems.EventSystem.current != null)
+            {
+                UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(playButton.gameObject);
+            }
         }
 
+        private void Update()
+        {
+            if (_shipSelectOpen)
+            {
+                HandleShipSelectInput();
+                return;
+            }
+
+            // Si nada está seleccionado (ej: se hizo clic fuera), Enter / Espacio inician la partida directamente
+            var es = UnityEngine.EventSystems.EventSystem.current;
+            if (es != null && es.currentSelectedGameObject != null) return;
+
+#if ENABLE_INPUT_SYSTEM
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb != null && (kb.enterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame))
+            {
+                OnPlayClicked();
+            }
+#endif
+        }
+
+        /// <summary>
+        /// JUGAR: antes de cargar la partida se elige la nave.
+        /// </summary>
         public void OnPlayClicked()
         {
             AudioManager.Instance?.PlayUIClick();
+            OpenShipSelect();
+        }
+
+        #region Selección de Nave
+        private GameObject _shipSelectPanel;
+        private bool _shipSelectOpen;
+        private int _shipSelectOpenedFrame;
+        private int _selectedShipIndex;
+
+        private class ShipCardView
+        {
+            public RectTransform Root;
+            public Image Background;
+            public Outline Border;
+            public Image Preview;
+            public Color PreviewTint;
+            public Text Name;
+            public Text Tagline;
+            public Text Description;
+        }
+        private readonly System.Collections.Generic.List<ShipCardView> _shipCards = new System.Collections.Generic.List<ShipCardView>();
+
+        private void OpenShipSelect()
+        {
+            if (_shipSelectPanel == null) BuildShipSelectPanel();
+            if (_shipSelectPanel == null)
+            {
+                StartGame();
+                return;
+            }
+
+            _selectedShipIndex = System.Array.IndexOf(Data.ShipDefinition.All, Data.ShipSelection.Current);
+            if (_selectedShipIndex < 0) _selectedShipIndex = 0;
+
+            _shipSelectOpen = true;
+            _shipSelectOpenedFrame = Time.frameCount;
+            _shipSelectPanel.transform.SetAsLastSibling();
+            _shipSelectPanel.SetActive(true);
+
+            // Que Enter/flechas no sigan actuando sobre los botones del menú de fondo
+            UnityEngine.EventSystems.EventSystem.current?.SetSelectedGameObject(null);
+            RefreshShipCards();
+        }
+
+        private void CloseShipSelect()
+        {
+            _shipSelectOpen = false;
+            if (_shipSelectPanel != null) _shipSelectPanel.SetActive(false);
+            if (playButton != null) UnityEngine.EventSystems.EventSystem.current?.SetSelectedGameObject(playButton.gameObject);
+        }
+
+        private void HandleShipSelectInput()
+        {
+            // El mismo Enter que pulsó JUGAR no debe confirmar la nave en ese frame
+            if (Time.frameCount == _shipSelectOpenedFrame) return;
+
+            bool left = false, right = false, confirm = false, back = false;
+#if ENABLE_INPUT_SYSTEM
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb != null)
+            {
+                left = kb.leftArrowKey.wasPressedThisFrame || kb.aKey.wasPressedThisFrame;
+                right = kb.rightArrowKey.wasPressedThisFrame || kb.dKey.wasPressedThisFrame;
+                confirm = kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame;
+                back = kb.escapeKey.wasPressedThisFrame || kb.backspaceKey.wasPressedThisFrame;
+            }
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+            left |= Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A);
+            right |= Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D);
+            confirm |= Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter) || Input.GetKeyDown(KeyCode.Space);
+            back |= Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.Backspace);
+#endif
+
+            if (left || right)
+            {
+                int count = Data.ShipDefinition.All.Length;
+                _selectedShipIndex = (_selectedShipIndex + (right ? 1 : -1) + count) % count;
+                AudioManager.Instance?.PlayUIHover();
+                RefreshShipCards();
+            }
+            else if (confirm)
+            {
+                ConfirmShip(_selectedShipIndex);
+            }
+            else if (back)
+            {
+                AudioManager.Instance?.PlayUIClick();
+                CloseShipSelect();
+            }
+        }
+
+        private void ConfirmShip(int index)
+        {
+            Data.ShipDefinition ship = Data.ShipDefinition.All[Mathf.Clamp(index, 0, Data.ShipDefinition.All.Length - 1)];
+            Data.ShipSelection.SelectedType = ship.Type;
+            AudioManager.Instance?.PlayUIClick();
+            Debug.Log($"<color=lime><b>[MainMenu]</b> Nave elegida: {ship.DisplayName}</color>");
+            StartGame();
+        }
+
+        private void RefreshShipCards()
+        {
+            for (int i = 0; i < _shipCards.Count; i++)
+            {
+                ShipCardView card = _shipCards[i];
+                Data.ShipDefinition ship = Data.ShipDefinition.All[i];
+                bool selected = i == _selectedShipIndex;
+
+                card.Root.localScale = Vector3.one * (selected ? 1.05f : 0.93f);
+                card.Background.color = selected
+                    ? new Color(ship.Color.r * 0.22f, ship.Color.g * 0.22f, ship.Color.b * 0.22f, 0.97f)
+                    : new Color(0.07f, 0.08f, 0.12f, 0.9f);
+                card.Border.enabled = selected;
+                card.Border.effectColor = ship.Color;
+
+                float dim = selected ? 1f : 0.45f;
+                card.Preview.color = new Color(card.PreviewTint.r * dim, card.PreviewTint.g * dim, card.PreviewTint.b * dim, card.PreviewTint.a);
+                card.Name.color = new Color(ship.Color.r, ship.Color.g, ship.Color.b, dim);
+                card.Tagline.color = new Color(1f, 1f, 1f, 0.85f * dim);
+                card.Description.color = new Color(0.85f, 0.9f, 0.96f, dim);
+            }
+        }
+
+        private void BuildShipSelectPanel()
+        {
+            if (mainCanvas == null) return;
+
+            RectTransform root = UIBuild.Stretch("ShipSelectPanel", mainCanvas.transform);
+            _shipSelectPanel = root.gameObject;
+            UIBuild.AddImage(_shipSelectPanel, new Color(0.02f, 0.03f, 0.06f, 0.97f), true);
+
+            RectTransform title = UIBuild.CreateRect("Title", root, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 300f), new Vector2(900f, 70f));
+            UIBuild.AddText(title.gameObject, "ELIGE TU NAVE", 48, new Color(0f, 0.95f, 0.85f), TextAnchor.MiddleCenter);
+
+            Data.ShipDefinition[] ships = Data.ShipDefinition.All;
+            for (int i = 0; i < ships.Length; i++)
+            {
+                float x = (i - ((ships.Length - 1) * 0.5f)) * 470f;
+                _shipCards.Add(BuildShipCard(root, ships[i], i, new Vector2(x, 0f)));
+            }
+
+            RectTransform hint = UIBuild.CreateRect("Hint", root, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -290f), new Vector2(900f, 40f));
+            UIBuild.AddText(hint.gameObject, "<color=#FFFF88>[← / →]</color> elegir     <color=#FFFF88>[ENTER]</color> jugar     <color=#FFFF88>[ESC]</color> volver",
+                20, new Color(0.75f, 0.85f, 0.95f), TextAnchor.MiddleCenter, FontStyle.Normal);
+
+            _shipSelectPanel.SetActive(false);
+        }
+
+        private ShipCardView BuildShipCard(RectTransform parent, Data.ShipDefinition ship, int index, Vector2 position)
+        {
+            var view = new ShipCardView();
+            view.Root = UIBuild.CreateRect($"Ship_{ship.Type}", parent, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), position, new Vector2(420f, 440f));
+            view.Background = UIBuild.AddImage(view.Root.gameObject, Color.black, true);
+            view.Border = view.Root.gameObject.AddComponent<Outline>();
+            view.Border.effectDistance = new Vector2(4f, -4f);
+
+            // También se puede elegir con el ratón
+            Button button = view.Root.gameObject.AddComponent<Button>();
+            button.targetGraphic = view.Background;
+            button.transition = Selectable.Transition.None;
+            var nav = button.navigation;
+            nav.mode = Navigation.Mode.None;
+            button.navigation = nav;
+            button.onClick.AddListener(() => ConfirmShip(index));
+
+            // Vista previa: el sprite de la nave (o el círculo tintado si aún no existe)
+            RectTransform preview = UIBuild.CreateRect("Preview", view.Root, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -8f), new Vector2(144f, 144f)); // 48px x3, escala entera para que el pixel art quede nítido
+            Sprite shipSprite = ship.LoadSprite();
+            view.Preview = UIBuild.AddImage(preview.gameObject, shipSprite != null ? Color.white : ship.Color);
+            view.Preview.sprite = shipSprite != null ? shipSprite : Combat.ProceduralSprites.Circle;
+            view.Preview.preserveAspect = true;
+            view.PreviewTint = view.Preview.color;
+
+            RectTransform nameRect = UIBuild.CreateRect("Name", view.Root, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -155f), new Vector2(-30f, 46f));
+            view.Name = UIBuild.AddText(nameRect.gameObject, ship.DisplayName, 36, ship.Color, TextAnchor.MiddleCenter);
+
+            RectTransform tagRect = UIBuild.CreateRect("Tagline", view.Root, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -203f), new Vector2(-30f, 28f));
+            view.Tagline = UIBuild.AddText(tagRect.gameObject, ship.Tagline.ToUpper(), 18, Color.white, TextAnchor.MiddleCenter, FontStyle.Italic);
+
+            RectTransform descRect = UIBuild.CreateRect("Description", view.Root, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 30f), new Vector2(-50f, 170f));
+            view.Description = UIBuild.AddText(descRect.gameObject, ship.Description, 18, Color.white, TextAnchor.UpperLeft, FontStyle.Normal);
+            view.Description.horizontalOverflow = HorizontalWrapMode.Wrap;
+            view.Description.lineSpacing = 1.25f;
+
+            return view;
+        }
+        #endregion
+
+        private void StartGame()
+        {
             Debug.Log($"<color=lime><b>[MainMenu]</b> Iniciando partida en '{gameplaySceneName}'...</color>");
 
             Time.timeScale = 1f;

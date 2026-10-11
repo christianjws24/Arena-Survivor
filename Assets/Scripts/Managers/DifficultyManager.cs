@@ -36,8 +36,10 @@ namespace ArenaSurvivor.Managers
         }
 
         [Header("Configuración de Escalado por Minuto")]
-        [Tooltip("Incremento porcentual de salud máxima de los enemigos por cada minuto (0.15 = +15%/min)")]
-        [SerializeField] private float healthIncreasePerMinute = 0.15f;
+#pragma warning disable 0414
+        [Tooltip("Escalado de salud desactivado (vida fija por diseño de enemigo)")]
+        [SerializeField] private float healthIncreasePerMinute = 0f;
+#pragma warning restore 0414
 
         [Tooltip("Incremento porcentual de velocidad de los enemigos por cada minuto (0.05 = +5%/min)")]
         [SerializeField] private float speedIncreasePerMinute = 0.05f;
@@ -50,6 +52,7 @@ namespace ArenaSurvivor.Managers
         public event Action<int> OnMinutePassed; // minuteNumber
 
         private int _lastReportedMinute = 0;
+        private float _stageStartTime;
 
         public float ElapsedTime => elapsedTime;
         public int ElapsedMinutes => (int)(elapsedTime / 60f);
@@ -99,23 +102,33 @@ namespace ArenaSurvivor.Managers
         }
 
         /// <summary>
-        /// Multiplicador de salud de enemigos: +15% por cada 60s transcurridos de juego.
-        /// Minuto 0: x1.00 | Minuto 1: x1.15 | Minuto 5: x1.75
+        /// Multiplicador de salud de enemigos: fijo en 1.0f (escalado progresivo de vida removido según requerimiento).
         /// </summary>
         public float GetHealthMultiplier()
         {
-            float minutes = elapsedTime / 60f;
-            return 1f + (minutes * healthIncreasePerMinute);
+            return 1f;
         }
 
         /// <summary>
-        /// Multiplicador de velocidad de movimiento: +5% por cada 60s transcurridos de juego.
+        /// Multiplicador de velocidad de movimiento: +5% por cada 60s transcurridos dentro de la etapa actual.
+        /// Se reinicia al empezar cada etapa para que los enemigos nuevos no lleguen ya acelerados.
         /// Minuto 0: x1.00 | Minuto 1: x1.05 | Minuto 5: x1.25
         /// </summary>
         public float GetSpeedMultiplier()
         {
-            float minutes = elapsedTime / 60f;
+            // Modo Libre: la dificultad crece solo en cantidad de enemigos (WaveManager), nunca en velocidad ni vida
+            if (WaveManager.Instance != null && WaveManager.Instance.IsEndless) return 1f;
+
+            float minutes = Mathf.Max(0f, elapsedTime - _stageStartTime) / 60f;
             return 1f + (minutes * speedIncreasePerMinute);
+        }
+
+        /// <summary>
+        /// Marca el inicio de una etapa (el escalado de velocidad vuelve a x1.00).
+        /// </summary>
+        public void ResetStageClock()
+        {
+            _stageStartTime = elapsedTime;
         }
 
         public void StopTimer()
@@ -131,6 +144,7 @@ namespace ArenaSurvivor.Managers
         public void ResetTimer()
         {
             elapsedTime = 0f;
+            _stageStartTime = 0f;
             _lastReportedMinute = 0;
             isTimerRunning = true;
         }

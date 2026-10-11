@@ -172,7 +172,7 @@ MonoBehaviour:
   moveSpeed: 10
   bulletPoolTag: PlayerBullet
   detectionRadius: 15
-  fireRate: 2.5
+  fireRate: 2
   firePoint: {fileID: 0}
   enemyLayer:
     serializedVersion: 2
@@ -184,7 +184,7 @@ MonoBehaviour:
   parryImpulseForce: 25
   parryDamage: 50
   maxLives: 5
-  iFrameDuration: 1.2
+  iFrameDuration: 3
   blinkInterval: 0.1
   spriteRenderer: {fileID: 0}
   damageShakeIntensity: 0.4

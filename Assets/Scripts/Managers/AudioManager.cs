@@ -25,6 +25,7 @@ namespace ArenaSurvivor.Managers
         [SerializeField] private AudioClip uiClickClip;
         [SerializeField] private AudioClip parryImpactClip;
         [SerializeField] private AudioClip playerDeathClip;
+        [SerializeField] private AudioClip shockwaveClip;
 
         [Header("Configuración del Filtro Low-Pass (Zona de Extracción)")]
         [Tooltip("Frecuencia de corte normal (sonido claro sin ahogo)")]
@@ -163,6 +164,63 @@ namespace ArenaSurvivor.Managers
                 sfxSource.PlayOneShot(playerDeathClip, 1.0f);
             }
         }
+
+        /// <summary>
+        /// Reproduce la detonación de la onda expansiva EMP al subir de nivel.
+        /// </summary>
+        public void PlayShockwaveEMP()
+        {
+            if (sfxSource != null)
+            {
+                if (shockwaveClip == null) shockwaveClip = CreateHeavyImpactClip("SFX_ShockwaveEMP", 0.55f);
+                sfxSource.PlayOneShot(shockwaveClip, 1.0f);
+            }
+        }
+
+        private AudioClip _laserClip;
+        private AudioClip _railgunClip;
+        private AudioClip _shieldClip;
+        private AudioClip _alertClip;
+
+        /// <summary>
+        /// Disparo de arma secundaria (Laser Burst, Fan Shot, Laser Shotgun).
+        /// </summary>
+        public void PlayWeaponFire()
+        {
+            if (sfxSource == null) return;
+            if (_laserClip == null) _laserClip = CreateToneClip("SFX_Laser", 0.09f, 1600f, 650f, 0.35f);
+            sfxSource.PlayOneShot(_laserClip, 0.6f);
+        }
+
+        /// <summary>
+        /// Descarga del Rail Gun (jugador o Mothership).
+        /// </summary>
+        public void PlayRailgun()
+        {
+            if (sfxSource == null) return;
+            if (_railgunClip == null) _railgunClip = CreateNoiseExplosionClip("SFX_Railgun", 0.45f);
+            sfxSource.PlayOneShot(_railgunClip, 0.9f);
+        }
+
+        /// <summary>
+        /// El Energy Shield absorbe un golpe.
+        /// </summary>
+        public void PlayShieldAbsorb()
+        {
+            if (sfxSource == null) return;
+            if (_shieldClip == null) _shieldClip = CreateToneClip("SFX_Shield", 0.22f, 500f, 1500f, 0.4f);
+            sfxSource.PlayOneShot(_shieldClip, 0.9f);
+        }
+
+        /// <summary>
+        /// Alerta de jefe / cambio de etapa.
+        /// </summary>
+        public void PlayBossAlert()
+        {
+            if (sfxSource == null) return;
+            if (_alertClip == null) _alertClip = CreateToneClip("SFX_Alert", 0.6f, 320f, 180f, 0.45f);
+            sfxSource.PlayOneShot(_alertClip, 1.0f);
+        }
         #endregion
 
         #region Filtro Low-Pass (Zona de Extracción)
@@ -213,6 +271,7 @@ namespace ArenaSurvivor.Managers
             if (uiClickClip == null) uiClickClip = CreateToneClip("SFX_Click", 0.09f, 900f, 400f, 0.4f);
             if (parryImpactClip == null) parryImpactClip = CreateHeavyImpactClip("SFX_ParryImpact", 0.35f);
             if (playerDeathClip == null) playerDeathClip = CreateNoiseExplosionClip("SFX_PlayerDeath", 0.6f);
+            if (shockwaveClip == null) shockwaveClip = CreateHeavyImpactClip("SFX_ShockwaveEMP", 0.55f);
         }
 
         private AudioClip CreateToneClip(string clipName, float duration, float startFreq, float endFreq, float gain)

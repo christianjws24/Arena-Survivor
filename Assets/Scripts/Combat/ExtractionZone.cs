@@ -255,9 +255,22 @@ namespace ArenaSurvivor.Combat
                 Collider2D col = _shockwaveBuffer[i];
                 if (col == null || !col.gameObject.activeInHierarchy) continue;
 
+                if (col.TryGetComponent(out Entities.BossEnergyShieldPart shieldPart))
+                {
+                    shieldPart.TakeDamage(250f);
+                    continue;
+                }
+
                 if (col.TryGetComponent(out Enemy enemy) && enemy.CurrentState != EnemyState.Dead)
                 {
-                    enemy.Die();
+                    if (enemy.IsHeavy)
+                    {
+                        enemy.TakeDamage(250f);
+                    }
+                    else
+                    {
+                        enemy.Die();
+                    }
                 }
             }
 

@@ -1089,7 +1089,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 23aa906a55f0adc4bb5e973cf4614604, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Managers.WaveManager
-  waveDuration: 25
+  waveDuration: 60
   initialSpawnInterval: 1.2
   minSpawnInterval: 0.15
   spawnIntervalDecay: 0.08
@@ -1098,7 +1098,21 @@ MonoBehaviour:
   spawnMargin: 2.5
   spawnBandThickness: 2
   fallbackSpawnRadius: 14
-  enemyPoolEntries: []
+  bossIntervalMinutes: 5
+  bossPoolTag: Boss_CentinelMajoris
+  enemyPoolEntries:
+  - poolTag: Enemy_Grunt
+    minWaveToSpawn: 1
+    spawnWeight: 10
+  - poolTag: Enemy_Drone
+    minWaveToSpawn: 2
+    spawnWeight: 7
+  - poolTag: Enemy_Parasite
+    minWaveToSpawn: 3
+    spawnWeight: 8
+  - poolTag: Enemy_Carrier
+    minWaveToSpawn: 4
+    spawnWeight: 3
 --- !u!4 &176560654
 Transform:
   m_ObjectHideFlags: 0
@@ -4948,6 +4962,34 @@ MonoBehaviour:
     prefab: {fileID: 7182938475619283746, guid: a1c1e4b835b86f0c3332bb1100000005, type: 3}
     size: 10
     shouldExpand: 1
+  - tag: Enemy_Grunt
+    prefab: {fileID: 7185990698129848039, guid: a1c1e4b835b86f0c3332bb1100000021, type: 3}
+    size: 35
+    shouldExpand: 1
+  - tag: Enemy_Drone
+    prefab: {fileID: 7185990698129848039, guid: a1c1e4b835b86f0c3332bb1100000022, type: 3}
+    size: 25
+    shouldExpand: 1
+  - tag: Enemy_Parasite
+    prefab: {fileID: 7185990698129848039, guid: a1c1e4b835b86f0c3332bb1100000023, type: 3}
+    size: 30
+    shouldExpand: 1
+  - tag: Enemy_Carrier
+    prefab: {fileID: 7185990698129848039, guid: a1c1e4b835b86f0c3332bb1100000024, type: 3}
+    size: 10
+    shouldExpand: 1
+  - tag: Boss_CentinelMajoris
+    prefab: {fileID: 10000001, guid: a1c1e4b835b86f0c3332bb1100000027, type: 3}
+    size: 2
+    shouldExpand: 1
+  - tag: EnemyBullet
+    prefab: {fileID: 2668226164981587898, guid: a1c1e4b835b86f0c3332bb1100000025, type: 3}
+    size: 35
+    shouldExpand: 1
+  - tag: EnemyLaser
+    prefab: {fileID: 2668226164981587898, guid: a1c1e4b835b86f0c3332bb1100000026, type: 3}
+    size: 35
+    shouldExpand: 1
 --- !u!4 &1308885386
 Transform:
   m_ObjectHideFlags: 0
@@ -5445,12 +5487,9 @@ MonoBehaviour:
   - {fileID: 11400000, guid: c933753ff0106564eac8853607c28c43, type: 2}
   - {fileID: 11400000, guid: 7d03c69f1a2028a4a8a991a2a16b6355, type: 2}
   - {fileID: 11400000, guid: 924f059530c507142a66ca83f0cb8592, type: 2}
-  - {fileID: 11400000, guid: 9e33704e14385d64eaf54bc290d088f7, type: 2}
   - {fileID: 11400000, guid: 507697d024cb8a84e81231e6e24dc4d7, type: 2}
   - {fileID: 11400000, guid: 215d73eb9941f254b835b86f0c3332bb, type: 2}
   - {fileID: 11400000, guid: 22ad6bebad52d864ebbccefa4e1a2053, type: 2}
-  - {fileID: 11400000, guid: 498d0f1988a61674eac0ac89fd8a58b5, type: 2}
-  - {fileID: 11400000, guid: 8ec3d636258b26b4e9d99ebb8b93dff5, type: 2}
   - {fileID: 11400000, guid: a1c1e4b835b86f0c3332bb1100000001, type: 2}
   - {fileID: 11400000, guid: a1c1e4b835b86f0c3332bb1100000002, type: 2}
   - {fileID: 11400000, guid: a1c1e4b835b86f0c3332bb1100000003, type: 2}
@@ -5458,6 +5497,16 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 57f147b75e657834fa6d56337f3f8bee, type: 2}
   - {fileID: 11400000, guid: 667911fddfea3b3498fe2887ee880585, type: 2}
   - {fileID: 11400000, guid: a1c1e4b835b86f0c3332bb1100000006, type: 2}
+  - {fileID: 11400000, guid: b2d1e4b835b86f0c3332bb1100000005, type: 2}
+  - {fileID: 11400000, guid: 85f9a49df2a62684781a58fa62fb2cff, type: 2}
+  - {fileID: 11400000, guid: 498d0f1988a61674eac0ac89fd8a58b5, type: 2}
+  - {fileID: 11400000, guid: 34b765805ac8466fa69dba8c0aab7498, type: 2}
+  - {fileID: 11400000, guid: 8ec3d636258b26b4e9d99ebb8b93dff5, type: 2}
+  - {fileID: 11400000, guid: 2407fa0843d14662b8cf56136818da06, type: 2}
+  - {fileID: 11400000, guid: 12f9cc72e38242b5bee64d1d965a95b9, type: 2}
+  - {fileID: 11400000, guid: 509ca433f94846819097cb7ec44689c6, type: 2}
+  - {fileID: 11400000, guid: 76f377e0f58c44d1abc3a6cf8a542153, type: 2}
+  - {fileID: 11400000, guid: b36619ea9c5a4b92974f4ee5b581615d, type: 2}
 --- !u!4 &1560153525
 Transform:
   m_ObjectHideFlags: 0
@@ -6918,7 +6967,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8274376239425008311, guid: 26891fcbc5cb7634cac8e6a2348c7ad2, type: 3}
       propertyPath: fireRate
-      value: 1.5
+      value: 2
       objectReference: {fileID: 0}
     - target: {fileID: 8274376239425008311, guid: 26891fcbc5cb7634cac8e6a2348c7ad2, type: 3}
       propertyPath: maxLives

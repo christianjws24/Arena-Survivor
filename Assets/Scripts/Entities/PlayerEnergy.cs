@@ -1,6 +1,10 @@
 using System;
+using System.Collections.Generic;
 using ArenaSurvivor.Combat;
+using ArenaSurvivor.Managers;
 using ArenaSurvivor.Pool;
+using ArenaSurvivor.UI;
+using ArenaSurvivor.Upgrades;
 using UnityEngine;
 
 namespace ArenaSurvivor.Entities
@@ -28,23 +32,25 @@ namespace ArenaSurvivor.Entities
         [Tooltip("Multiplicador exponencial compuesto por cada extracción completada (ej. 1.25 para +25% acumulativo)")]
         [SerializeField] private float exponentialScalingFactor = 1.25f;
 
-        [Tooltip("Ganancia de energía por cada enemigo eliminado")]
+        [Tooltip("Energía (EXP) que da un enemigo de referencia con scoreValue = 10 (ej. Grunt). Cada enemigo da esta cantidad x (scoreValue / 10), "
+               + "así que la experiencia por enemigo se ajusta con 'scoreValue' en su EnemyData.")]
         [SerializeField] private float killEnergyGain = 4f;
+
+        [Tooltip("Tope de energía que puede dar un solo enemigo (evita que un jefe llene la barra varias veces)")]
+        [SerializeField] private float maxEnergyPerKill = 40f;
 
         [Tooltip("Ganancia de energía al acertar un Parry")]
         [SerializeField] private float parryEnergyGain = 25f;
 
-        [Header("Protocolo de Extracción")]
-        [Tooltip("Si es true, la zona de extracción se despliega automáticamente al alcanzar el 100% de energía.")]
-        [SerializeField] private bool autoDeployExtraction = true;
+        [Header("Subida de Nivel Automática")]
+        [Tooltip("Radio de la onda de choque de aniquilación al subir de nivel")]
+        [SerializeField] private float shockwaveRadius = 10f;
 
-        [Tooltip("Tag del pool para la zona de extracción")]
-        [SerializeField] private string extractionZonePoolTag = "ExtractionZone";
+        [Tooltip("Intensidad del temblor de cámara al detonar la onda de choque")]
+        [SerializeField] private float shockwaveShakeIntensity = 0.55f;
 
-        [Tooltip("Tecla para activar la zona cuando la energía esté al 100% (si autoDeployExtraction está desactivado)")]
-#pragma warning disable 0414
-        [SerializeField] private KeyCode extractionKey = KeyCode.E;
-#pragma warning restore 0414
+        [Tooltip("Duración del temblor de cámara al detonar la onda de choque")]
+        [SerializeField] private float shockwaveShakeDuration = 0.45f;
 
         // Notifica a la UI: currentEnergy, maxEnergy (Manteniendo desacoplada la vista de la lógica)
         public event Action<float, float> OnEnergyChanged;
@@ -54,18 +60,24 @@ namespace ArenaSurvivor.Entities
 
         private float _currentEnergy;
         private float _currentMaxEnergy;
+        // Experiencia que sobra al llenar la barra (o que llega mientras se elige mejora, ej. la onda de choque):
+        // se suma al siguiente nivel en lugar de perderse
+        private float _overflowEnergy;
         private int _extractionsCompleted;
-        private bool _isZoneActive;
+        private bool _isLevelingUp;
         private PlayerController _player;
+
+        private readonly List<Collider2D> _shockwaveBuffer = new List<Collider2D>(64);
+        private ContactFilter2D _enemyFilter;
 
         public float CurrentEnergy => _currentEnergy;
         public float MaxEnergy => _currentMaxEnergy;
         public bool IsEnergyFull => _currentEnergy >= _currentMaxEnergy;
-        public bool IsZoneActive => _isZoneActive || ExtractionZone.IsZoneActive;
+        public bool IsZoneActive => false; // Zona eliminada según requerimiento
         public int ExtractionsCompleted => _extractionsCompleted;
 
         /// <summary>
-        /// Calcula la energía máxima requerida para una extracción dada usando escalado compuesto:
+        /// Calcula la energía máxima requerida para una subida de nivel usando escalado compuesto:
         /// Base + (incremento plano) escalado por un factor exponencial acumulativo.
         /// </summary>
         public float CalculateMaxEnergyForExtraction(int extractionIndex)
@@ -79,14 +91,16 @@ namespace ArenaSurvivor.Entities
         {
             _player = GetComponent<PlayerController>();
             _currentMaxEnergy = CalculateMaxEnergyForExtraction(0);
+
+            _enemyFilter = new ContactFilter2D();
+            _enemyFilter.useTriggers = true;
+            _enemyFilter.useLayerMask = false;
         }
 
         private void OnEnable()
         {
             // Suscripción a eventos desacoplados
             Enemy.OnEnemyDefeated += HandleEnemyDefeated;
-            ExtractionZone.OnZoneSpawned += HandleZoneSpawned;
-            ExtractionZone.OnZoneClosed += HandleZoneClosed;
 
             if (_player != null)
             {
@@ -97,8 +111,6 @@ namespace ArenaSurvivor.Entities
         private void OnDisable()
         {
             Enemy.OnEnemyDefeated -= HandleEnemyDefeated;
-            ExtractionZone.OnZoneSpawned -= HandleZoneSpawned;
-            ExtractionZone.OnZoneClosed -= HandleZoneClosed;
 
             if (_player != null)
             {
@@ -113,49 +125,14 @@ namespace ArenaSurvivor.Entities
             NotifyEnergyChanged();
         }
 
-        private void Update()
-        {
-            if (_player != null && _player.IsDead) return;
-
-            // Si la energía está llena y no hay otra zona activa, desplegar la zona
-            if (IsEnergyFull && !IsZoneActive)
-            {
-                if (autoDeployExtraction)
-                {
-                    ActivateExtractionProtocol();
-                    return;
-                }
-
-                bool triggerPressed = false;
-
-#if ENABLE_INPUT_SYSTEM
-                if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.eKey.wasPressedThisFrame)
-                {
-                    triggerPressed = true;
-                }
-                if (UnityEngine.InputSystem.Gamepad.current != null && UnityEngine.InputSystem.Gamepad.current.buttonNorth.wasPressedThisFrame)
-                {
-                    triggerPressed = true;
-                }
-#endif
-
-#if ENABLE_LEGACY_INPUT_MANAGER
-                if (Input.GetKeyDown(extractionKey))
-                {
-                    triggerPressed = true;
-                }
-#endif
-
-                if (triggerPressed)
-                {
-                    ActivateExtractionProtocol();
-                }
-            }
-        }
-
         private void HandleEnemyDefeated(Enemy enemy)
         {
-            AddEnergy(killEnergyGain);
+            // Los proyectiles fantasma de 'mirror_refractor' no son enemigos reales: no dan experiencia
+            if (enemy != null && enemy.IsPhantomProjectile) return;
+
+            // La experiencia depende del enemigo: scoreValue de su EnemyData (Grunt = 10 = energía de referencia)
+            float scoreScale = enemy != null && enemy.Data != null ? enemy.Data.scoreValue / 10f : 1f;
+            AddEnergy(Mathf.Min(killEnergyGain * scoreScale, maxEnergyPerKill));
         }
 
         private void HandleParrySuccess()
@@ -163,32 +140,23 @@ namespace ArenaSurvivor.Entities
             AddEnergy(parryEnergyGain);
         }
 
-        private void HandleZoneSpawned()
-        {
-            _isZoneActive = true;
-            NotifyEnergyChanged();
-        }
-
-        private void HandleZoneClosed()
-        {
-            _isZoneActive = false;
-            _extractionsCompleted++;
-
-            // Escalado de dificultad: Cada ciclo requiere progresivamente más energía (curva compuesta)
-            _currentMaxEnergy = CalculateMaxEnergyForExtraction(_extractionsCompleted);
-
-            OnExtractionEnded?.Invoke();
-            NotifyEnergyChanged();
-            Debug.Log($"<color=cyan><b>[ENERGÍA DESBLOQUEADA]</b> Zona cerrada. Siguiente objetivo de extracción (Nivel {_extractionsCompleted + 1}): {_currentMaxEnergy} energía.</color>");
-        }
-
         public void AddEnergy(float amount)
         {
-            // REGLA: Si la energía ya está al máximo O la zona está activa en el mapa, NO se puede recargar energía
-            if (IsEnergyFull || IsZoneActive) return;
+            if (_player != null && _player.IsDead) return;
+
+            if (_isLevelingUp)
+            {
+                if (amount > 0f) _overflowEnergy += amount;
+                return;
+            }
 
             float previousEnergy = _currentEnergy;
-            _currentEnergy = Mathf.Clamp(_currentEnergy + amount, 0f, _currentMaxEnergy);
+            float total = _currentEnergy + amount;
+            if (total > _currentMaxEnergy)
+            {
+                _overflowEnergy += total - _currentMaxEnergy;
+            }
+            _currentEnergy = Mathf.Clamp(total, 0f, _currentMaxEnergy);
 
             if (_currentEnergy != previousEnergy)
             {
@@ -196,36 +164,118 @@ namespace ArenaSurvivor.Entities
 
                 if (IsEnergyFull)
                 {
-                    if (autoDeployExtraction)
-                    {
-                        Debug.Log("<color=cyan><b>[PROTOCOLO DE EXTRACCIÓN ACTIVADO]</b> Energía al 100%. Desplegando Zona de Extracción automáticamente...</color>");
-                        ActivateExtractionProtocol();
-                    }
-                    else
-                    {
-                        Debug.Log("<color=cyan><b>[PROTOCOLO DE EXTRACCIÓN LISTO]</b> Presiona 'E' para desplegar la Zona de Extracción.</color>");
-                        OnExtractionReady?.Invoke();
-                    }
+                    OnExtractionReady?.Invoke();
+                    TriggerLevelUp();
                 }
             }
         }
 
-        private void ActivateExtractionProtocol()
+        private void TriggerLevelUp()
         {
-            // Reiniciar energía a 0 y marcar zona activa
-            _currentEnergy = 0f;
-            _isZoneActive = true;
-            NotifyEnergyChanged();
+            if (_isLevelingUp) return;
+            _isLevelingUp = true;
+
+            Debug.Log("<color=cyan><b>[SUBIDA DE NIVEL]</b> ⭐ ¡Experiencia máxima alcanzada! Abriendo selección de mejora automáticamente...</color>");
             OnExtractionStarted?.Invoke();
 
-            // Instanciar la Zona de Extracción desde el ObjectPooler en la posición del jugador
-            if (ObjectPooler.Instance != null)
+            if (LevelUpUIManager.Instance != null)
             {
-                ObjectPooler.Instance.SpawnFromPool(extractionZonePoolTag, transform.position, Quaternion.identity);
+                LevelUpUIManager.Instance.OpenLevelUpModal(OnUpgradeChosenAndResumed);
             }
             else
             {
-                Debug.LogWarning("[PlayerEnergy] ObjectPooler no encontrado para spawnear la Zona de Extracción.");
+                // Fallback por si la UI no está presente
+                UpgradeManager.Instance?.ApplyRandomUpgrade();
+                OnUpgradeChosenAndResumed();
+            }
+        }
+
+        /// <summary>
+        /// Invocado cuando el jugador elige su habilidad en el modal:
+        /// Detona la explosión destructiva alrededor del jugador, avanza nivel y reanuda el juego.
+        /// </summary>
+        private void OnUpgradeChosenAndResumed()
+        {
+            // 1. Detonar onda de choque destructiva (Shockwave EMP) centrada en el jugador
+            //    (la experiencia de los enemigos que destruye se acumula como sobrante)
+            TriggerShockwaveEMP();
+
+            // 2. Incrementar nivel y calcular nuevo requerimiento de energía
+            _extractionsCompleted++;
+            _currentEnergy = 0f;
+            _currentMaxEnergy = CalculateMaxEnergyForExtraction(_extractionsCompleted);
+            _isLevelingUp = false;
+
+            OnExtractionEnded?.Invoke();
+            NotifyEnergyChanged();
+
+            Debug.Log($"<color=lime><b>[NIVEL ALCANZADO]</b> ¡Onda expansiva detonada! Siguiente nivel ({_extractionsCompleted + 1}): {_currentMaxEnergy} EXP requerida.</color>");
+
+            // 3. La experiencia sobrante pasa al siguiente nivel (como mucho un nivel completo de golpe)
+            float carried = Mathf.Min(_overflowEnergy, _currentMaxEnergy);
+            _overflowEnergy = 0f;
+            if (carried > 0f)
+            {
+                Debug.Log($"<color=lime><b>[EXP]</b> +{carried:0} de experiencia sobrante trasladada al siguiente nivel.</color>");
+                AddEnergy(carried);
+            }
+        }
+
+        private void TriggerShockwaveEMP()
+        {
+            Vector2 center = transform.position;
+
+            // 1. Game Feel: Temblor de cámara dramático
+            if (CameraShake.Instance != null)
+            {
+                CameraShake.Instance.Shake(shockwaveShakeDuration, shockwaveShakeIntensity);
+            }
+
+            // 2. Audio SFX
+            AudioManager.Instance?.PlayShockwaveEMP();
+
+            // 3. Onda de Choque (EMP): Destruye a todos los enemigos en el radio
+            int hits = Physics2D.OverlapCircle(center, shockwaveRadius, _enemyFilter, _shockwaveBuffer);
+            for (int i = 0; i < hits; i++)
+            {
+                Collider2D col = _shockwaveBuffer[i];
+                if (col == null || !col.gameObject.activeInHierarchy) continue;
+
+                if (col.TryGetComponent(out BossEnergyShieldPart shieldPart))
+                {
+                    shieldPart.TakeDamage(250f);
+                    continue;
+                }
+
+                if (col.TryGetComponent(out Enemy enemy) && enemy.CurrentState != EnemyState.Dead)
+                {
+                    if (enemy.IsHeavy)
+                    {
+                        enemy.TakeDamage(250f);
+                    }
+                    else
+                    {
+                        enemy.Die();
+                    }
+                }
+            }
+
+            // 4. VFX de Onda Expansiva desde ObjectPooler
+            if (ObjectPooler.Instance != null)
+            {
+                if (ObjectPooler.Instance.HasPool("ShockwaveVFX"))
+                {
+                    ObjectPooler.Instance.SpawnFromPool("ShockwaveVFX", center, Quaternion.identity);
+                }
+
+                if (ObjectPooler.Instance.HasPool("DeathVFX"))
+                {
+                    GameObject vfxObj = ObjectPooler.Instance.SpawnFromPool("DeathVFX", center, Quaternion.identity);
+                    if (vfxObj != null && vfxObj.TryGetComponent(out DeathVFX vfx))
+                    {
+                        vfx.PlayEffect(new Color(0.2f, 0.9f, 1f), 60, 4.0f);
+                    }
+                }
             }
         }
 

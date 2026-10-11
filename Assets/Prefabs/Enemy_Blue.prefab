@@ -176,9 +176,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 952554034037479744}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 918bd5bc7095121468290ca99b77a7d4, type: 3}
+  m_Script: {fileID: 11500000, guid: c3d07e2187140fa408b08a41f6fc783f, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Entities.Enemy
+  m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Entities.CarrierEnemy
   enemyData: {fileID: 11400000, guid: a1612774941c0d14394c0fb9b8285cca, type: 2}
   spriteRenderer: {fileID: 0}
   parriedProjectileColor: {r: 0.2, g: 1, b: 1, a: 1}
+  spawnInterval: 4
+  gruntPoolTag: Enemy_Grunt
+  dronePoolTag: Enemy_Drone
+  phaseInDuration: 1.2

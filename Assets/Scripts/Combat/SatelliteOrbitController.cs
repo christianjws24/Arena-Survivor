@@ -150,10 +150,11 @@ namespace ArenaSurvivor.Combat
             orb.transform.position = transform.position;
             orb.transform.localScale = Vector3.one * orbScale;
 
-            // SpriteRenderer con sprite circular suave
+            // Orbe en pixel art (ya trae su color menta); si no existe, el círculo suave tintado
+            Sprite art = FxSprites.Satellite;
             SpriteRenderer sr = orb.AddComponent<SpriteRenderer>();
-            sr.sprite = GetOrbSprite();
-            sr.color = orbColor;
+            sr.sprite = art != null ? art : GetOrbSprite();
+            sr.color = art != null ? Color.white : orbColor;
             sr.sortingOrder = 5;
 
             // Collider para detección de enemigos
@@ -231,6 +232,20 @@ namespace ArenaSurvivor.Combat
             TryDamageEnemy(other);
         }
 
+        /// <summary>
+        /// True si el objetivo ya no está en enfriamiento (y lo reinicia).
+        /// </summary>
+        private bool TryConsumeHit(Enemy target)
+        {
+            float now = Time.time;
+            if (_lastHitTimes.TryGetValue(target, out float lastHit) && (now - lastHit) < _hitCooldown)
+            {
+                return false;
+            }
+            _lastHitTimes[target] = now;
+            return true;
+        }
+
         private void OnTriggerEnter2D(Collider2D other)
         {
             TryDamageEnemy(other);
@@ -238,15 +253,33 @@ namespace ArenaSurvivor.Combat
 
         private void TryDamageEnemy(Collider2D other)
         {
-            if (other.TryGetComponent(out Enemy enemy) && enemy.CurrentState == EnemyState.Chasing)
+            if (other.TryGetComponent(out Entities.BossEnergyShieldPart shieldPart))
             {
-                float now = Time.time;
-                if (_lastHitTimes.TryGetValue(enemy, out float lastHit) && (now - lastHit) < _hitCooldown)
+                // Mismo enfriamiento que contra enemigos (antes el escudo recibía daño en cada paso físico)
+                Enemy shieldOwner = shieldPart.MainBoss;
+                if (shieldOwner != null)
                 {
-                    return;
+                    if (!TryConsumeHit(shieldOwner)) return;
                 }
+                shieldPart.TakeDamage(_damage);
+                if (ObjectPooler.Instance != null && ObjectPooler.Instance.HasPool("DeathVFX"))
+                {
+                    GameObject vfx = ObjectPooler.Instance.SpawnFromPool("DeathVFX", transform.position, Quaternion.identity);
+                    if (vfx != null && vfx.TryGetComponent(out DeathVFX deathVfx))
+                    {
+                        deathVfx.PlayEffect(_vfxColor, 8, 0.4f);
+                    }
+                }
+                return;
+            }
 
-                _lastHitTimes[enemy] = now;
+            Enemy enemy = other.GetComponent<Enemy>();
+            if (enemy == null) enemy = other.GetComponentInParent<Enemy>();
+
+            if (enemy != null && enemy.CurrentState == EnemyState.Chasing)
+            {
+                // Con el escudo del jefe activo, núcleo y cañones comparten enfriamiento (todo va al mismo escudo)
+                if (!TryConsumeHit(Enemy.GetHitTarget(enemy))) return;
                 enemy.TakeDamage(_damage);
 
                 // Feedback visual de impacto

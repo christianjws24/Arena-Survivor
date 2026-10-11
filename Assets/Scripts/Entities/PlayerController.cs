@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using ArenaSurvivor.Combat;
+using ArenaSurvivor.Data;
 using ArenaSurvivor.Pool;
 using ArenaSurvivor.Upgrades;
 using UnityEngine;
@@ -17,6 +18,8 @@ namespace ArenaSurvivor.Entities
 
     /// <summary>
     /// Controlador principal del jugador (Círculo).
+    /// Teclado: WASD/flechas mueven y fijan la dirección de mira (para las armas H J K + especial L), Espacio hace Parry.
+    /// Mando: stick izquierdo mueve, Círculo / R1 hace Parry, armas normales en R2 / L2 / L1 y arma especial en Triángulo.
     /// Gestiona: movimiento físico 2D, sistema de auto-aim con cero GC allocations,
     /// disparo automático, 3 vidas, I-Frames con parpadeo visual, feedback de cámara
     /// y mecánica activa de Parry (con Hit Stop y Contraataque de Billar).
@@ -35,8 +38,10 @@ namespace ArenaSurvivor.Entities
         [SerializeField] private string bulletPoolTag = "PlayerBullet";
         [Tooltip("Radio de detección de enemigos")]
         [SerializeField] private float detectionRadius = 9f;
-        [Tooltip("Cadencia de disparo (disparos por segundo)")]
-        [SerializeField] private float fireRate = 2.5f;
+        [Tooltip("Si no hay enemigos en el radio normal, alcance extendido para objetivos pesados (torretas, jefes)")]
+        [SerializeField] private float heavyTargetRadius = 16f;
+        [Tooltip("Cadencia de disparo base (disparos por segundo): 2 = un disparo cada medio segundo")]
+        [SerializeField] private float fireRate = 2f;
         [Tooltip("Punto de salida del proyectil (si es null usa la posición del jugador)")]
         [SerializeField] private Transform firePoint;
         [Tooltip("Capa (LayerMask) asignada a los enemigos")]
@@ -55,12 +60,31 @@ namespace ArenaSurvivor.Entities
         [SerializeField] private float parryImpulseForce = 25f;
         [Tooltip("Daño infligido por el enemigo desvíado a otros enemigos")]
         [SerializeField] private float parryDamage = 60f;
+        [Tooltip("Empuje que recibe el jugador al hacerle Parry a un jefe (o a una de sus partes)")]
+        [SerializeField] private float bossParryKnockback = 16f;
+
+        [Header("Desvío Espectral (parry_dash)")]
+        [SerializeField] private float parryDashSpeed = 18f;
+        [SerializeField] private float parryDashDuration = 0.18f;
+        [Tooltip("Invulnerabilidad extra al terminar el dash, para no recibir daño al aterrizar junto a enemigos")]
+        [SerializeField] private float parryDashGraceTime = 0.4f;
+        [Tooltip("Radio en el que el dash aparta a los enemigos ligeros que tiene delante")]
+        [SerializeField] private float parryDashPushRadius = 1.1f;
+        [Tooltip("Velocidad con la que el dash aparta a esos enemigos de su trayectoria")]
+        [SerializeField] private float parryDashPushForce = 14f;
+
+        [Header("Modelo de Daño")]
+        [Tooltip("Daño base del jugador: 100% = un disparo automático. Todas las armas escalan como porcentaje de este valor.")]
+        [SerializeField] private float baseDamage = 35f;
 
         [Header("Salud y Daño")]
         [SerializeField] private int maxLives = 3;
-        [SerializeField] private float iFrameDuration = 1.2f;
+        [Tooltip("Tiempo de invulnerabilidad tras recibir un golpe: los enemigos no pueden volver a dañarte durante este lapso")]
+        [SerializeField] private float iFrameDuration = 3f;
         [SerializeField] private float blinkInterval = 0.1f;
         [SerializeField] private SpriteRenderer spriteRenderer;
+        [Tooltip("Velocidad de giro del sprite de la nave hacia la dirección de movimiento (grados/segundo)")]
+        [SerializeField] private float shipTurnSpeed = 1080f;
 
         [Header("Juice (Game Feel)")]
         [SerializeField] private float damageShakeIntensity = 0.4f;
@@ -82,13 +106,14 @@ namespace ArenaSurvivor.Entities
             get
             {
                 int servoLevel = UpgradeManager.Instance != null ? UpgradeManager.Instance.GetLevel("servomotors") : 0;
-                return moveSpeed * (1f + (servoLevel * 0.10f));
+                return moveSpeed * Ship.MoveSpeedMultiplier * (1f + (servoLevel * 0.10f));
             }
         }
 
         /// <summary>
-        /// Cooldown de disparo considerando la mejora acumulable 'overclock' (-10% de tiempo de enfriamiento por nivel).
-        /// Fórmula: cooldownFinal = cooldownBase * (1 - (nivel * 0.10f))
+        /// Cooldown de disparo considerando la mejora acumulable 'overclock' (-10% de tiempo de enfriamiento por nivel)
+        /// y la cadencia extra del Anclaje Ofensivo.
+        /// Fórmula: cooldownFinal = (1 / cadencia) * (1 - (nivel * 0.10f)) / multiplicadorAnclaje
         /// </summary>
         public float CurrentFireCooldown
         {
@@ -96,22 +121,51 @@ namespace ArenaSurvivor.Entities
             {
                 int overclockLevel = UpgradeManager.Instance != null ? UpgradeManager.Instance.GetLevel("overclock") : 0;
                 float reductionMultiplier = Mathf.Max(0.2f, 1f - (overclockLevel * 0.10f));
-                return (1f / Mathf.Max(0.1f, fireRate)) * reductionMultiplier;
+                float anchorFireRate = AnchorZoneController.GetPlayerFireRateMultiplier(transform.position);
+                float shipFireRate = fireRate * Ship.FireRateMultiplier;
+                return (1f / Mathf.Max(0.1f, shipFireRate)) * reductionMultiplier / anchorFireRate;
             }
         }
 
         /// <summary>
-        /// Daño base de colisión del Parry considerando la mejora 'heavy_caliber' (+20% por nivel).
-        /// Fórmula: dañoFinal = dañoBase * (1 + (nivel * 0.20f))
+        /// Daño base del jugador (100%). Referencia común para todas las armas.
         /// </summary>
-        public float CurrentParryDamage
+        public float BaseDamage => baseDamage;
+
+        /// <summary>
+        /// Multiplicador global de daño: 'heavy_caliber' (+20% por nivel, aditivo) x Anclaje Ofensivo (x1.5 dentro de la zona).
+        /// </summary>
+        public float DamageMultiplier
         {
             get
             {
                 int caliberLevel = UpgradeManager.Instance != null ? UpgradeManager.Instance.GetLevel("heavy_caliber") : 0;
-                return parryDamage * (1f + (caliberLevel * 0.20f));
+                return (1f + (caliberLevel * 0.20f)) * AnchorZoneController.GetPlayerDamageMultiplier(transform.position);
             }
         }
+
+        /// <summary>
+        /// Daño final de un ataque expresado como bonus porcentual sobre el daño base.
+        /// Ej: Laser Burst (+15%) => GetDamage(0.15f); Rail Gun (+300%) => GetDamage(3f); Laser Shotgun (-25%) => GetDamage(-0.25f).
+        /// </summary>
+        public float GetDamage(float bonusPercentOfBase = 0f)
+        {
+            return baseDamage * Mathf.Max(0f, 1f + bonusPercentOfBase) * DamageMultiplier;
+        }
+
+        /// <summary>
+        /// Daño de un DISPARO (automático o arma HJKL): GetDamage con el bonus de daño de la nave (Slayer +15%).
+        /// Los efectos de Parry (vórtice, relevos, contraataque) usan GetDamage sin este bonus.
+        /// </summary>
+        public float GetShotDamage(float bonusPercentOfBase = 0f)
+        {
+            return GetDamage(bonusPercentOfBase) * Ship.ShotDamageMultiplier;
+        }
+
+        /// <summary>
+        /// Daño de colisión del Parry escalado con el multiplicador global ('heavy_caliber', Anclaje Ofensivo).
+        /// </summary>
+        public float CurrentParryDamage => parryDamage * DamageMultiplier;
 
         /// <summary>
         /// Multiplicador de cooldown de Parry reducido por el Power-Up 'rapid_parry' (-20% por nivel acumulable).
@@ -156,9 +210,16 @@ namespace ArenaSurvivor.Entities
 
         private Rigidbody2D _rb;
         private Vector2 _moveInput;
+        private Vector2 _facingDirection = Vector2.up;
+        private Vector2 _knockbackVelocity;
+        private Vector2 _dashVelocity;
+        private float _dashTimer;
+        private Transform _facingIndicator;
+        private Transform _shipVisual;
+        private PlayerWeapons _weapons;
         private float _fireCooldown;
         private int _currentLives;
-        private bool _isInvulnerable;
+        private float _invulnerableTimer; // Invulnerabilidad restante (I-Frames, escudo, dash): gana siempre la más larga
         private bool _isDead;
 
         private ParryState _parryState = ParryState.Ready;
@@ -168,6 +229,11 @@ namespace ArenaSurvivor.Entities
         private float _chainReflexesTimer; // Buff de Reflejos en Cadena (+50% active window)
         private float _parryCooldownRemaining;
         private float _parryCooldownTotal;
+        // Enemigos desviados en la activación actual: solo el primero cuenta como Parry (vampirismo, energía).
+        // Los siguientes (ej. cadena de la Transposición de Masa) son un efecto aparte.
+        private int _parryHitsThisActivation;
+        private bool _bossParriedThisActivation;
+        private static readonly Collider2D[] DashHitsBuffer = new Collider2D[32];
 
         [Header("Radar de Alto Rendimiento")]
         [Tooltip("Frecuencia de escaneo del radar en segundos (Tick Rate, ej: 0.1s = 10Hz)")]
@@ -178,6 +244,13 @@ namespace ArenaSurvivor.Entities
         private float _radarScanTimer;
         private Transform _cachedTargetEnemy;
 
+        /// <summary>
+        /// Dirección de mira: último sentido de movimiento (8 direcciones con teclado). Las armas HJKL disparan hacia aquí.
+        /// </summary>
+        public Vector2 FacingDirection => _facingDirection;
+        public Vector2 MoveInput => _moveInput;
+        public bool IsInvulnerable => _invulnerableTimer > 0f;
+
         public int CurrentLives => _currentLives;
         public int MaxLives => maxLives;
         public bool IsDead => _isDead;
@@ -185,8 +258,19 @@ namespace ArenaSurvivor.Entities
         public float ParryCooldownRemaining => _parryCooldownRemaining;
         public float ParryCooldownTotal => _parryCooldownTotal;
         public float ParryCooldownNormalized => _parryCooldownTotal > 0.001f ? Mathf.Clamp01(1f - (_parryCooldownRemaining / _parryCooldownTotal)) : 1f;
-        public float EffectiveSuccessCooldown => parrySuccessCooldown * CurrentParryCooldownMultiplier;
-        public float EffectiveMissCooldown => parryMissCooldown * CurrentParryCooldownMultiplier;
+        public float EffectiveSuccessCooldown => BaseParrySuccessCooldown * CurrentParryCooldownMultiplier;
+        public float EffectiveMissCooldown => BaseParryMissCooldown * CurrentParryCooldownMultiplier;
+
+        /// <summary>Nave elegida en el menú (Slayer, Spartan o Celerus).</summary>
+        public ShipDefinition Ship => _ship ?? (_ship = ShipSelection.Current);
+        private ShipDefinition _ship;
+
+        /// <summary>Renderer visible del jugador: el sprite de la nave si existe, si no el círculo raíz.</summary>
+        public SpriteRenderer ShipRenderer => spriteRenderer;
+
+        // Slayer (5s) y Celerus (2.5s) tienen un cooldown fijo de Parry, acierte o falle; Spartan usa los cooldowns normales
+        private float BaseParrySuccessCooldown => Ship.FixedParryCooldown > 0f ? Ship.FixedParryCooldown : parrySuccessCooldown;
+        private float BaseParryMissCooldown => Ship.FixedParryCooldown > 0f ? Ship.FixedParryCooldown : parryMissCooldown;
 
         private void Awake()
         {
@@ -200,6 +284,11 @@ namespace ArenaSurvivor.Entities
             _rb = GetComponent<Rigidbody2D>();
             if (spriteRenderer == null) spriteRenderer = GetComponentInChildren<SpriteRenderer>();
 
+            // Nave elegida en el menú: su color identifica al jugador (Slayer naranja, Spartan cian, Celerus rosa)
+            _ship = ShipSelection.Current;
+            if (!EnsureShipVisual() && spriteRenderer != null) spriteRenderer.color = _ship.Color;
+            Debug.Log($"<color=cyan><b>[NAVE]</b> {_ship.DisplayName} ({_ship.Tagline})</color>");
+
             _currentLives = maxLives;
 
             EnsureParryHitboxSetup();
@@ -208,6 +297,107 @@ namespace ArenaSurvivor.Entities
             {
                 gameObject.AddComponent<Combat.SatelliteOrbitController>();
             }
+
+            if (!TryGetComponent(out _weapons))
+            {
+                _weapons = gameObject.AddComponent<PlayerWeapons>();
+            }
+
+            if (!TryGetComponent<AnchorZoneController>(out _))
+            {
+                gameObject.AddComponent<AnchorZoneController>();
+            }
+
+            if (!TryGetComponent<HealthDropDirector>(out _))
+            {
+                gameObject.AddComponent<HealthDropDirector>();
+            }
+
+            // La nave ya apunta hacia donde se mueve; la flecha solo hace falta con el círculo de respaldo
+            if (_shipVisual == null) EnsureFacingIndicator();
+        }
+
+        /// <summary>
+        /// Crea el hijo "ShipVisual" con el sprite de la nave elegida y lo usa como renderer del jugador.
+        /// Va en un hijo para poder rotarlo sin girar el collider, el parry ni los satélites.
+        /// Devuelve false si el sprite no existe (se mantiene el círculo tintado).
+        /// </summary>
+        private bool EnsureShipVisual()
+        {
+            Sprite sprite = _ship.LoadSprite();
+            if (sprite == null) return false;
+
+            SpriteRenderer rootRenderer = spriteRenderer;
+            GameObject go = new GameObject("ShipVisual");
+            go.transform.SetParent(transform, false);
+            SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = sprite;
+            if (rootRenderer != null)
+            {
+                sr.sortingLayerID = rootRenderer.sortingLayerID;
+                sr.sortingOrder = rootRenderer.sortingOrder;
+                sr.sharedMaterial = rootRenderer.sharedMaterial;
+                rootRenderer.enabled = false;
+            }
+
+            spriteRenderer = sr;
+            _shipVisual = go.transform;
+            _shipVisual.localRotation = FacingRotation();
+            return true;
+        }
+
+        // Los sprites de nave miran hacia arriba (+Y)
+        private Quaternion FacingRotation()
+        {
+            float angle = Mathf.Atan2(_facingDirection.y, _facingDirection.x) * Mathf.Rad2Deg - 90f;
+            return Quaternion.Euler(0f, 0f, angle);
+        }
+
+        private void UpdateShipVisual()
+        {
+            if (_shipVisual == null) return;
+            _shipVisual.localRotation = Quaternion.RotateTowards(_shipVisual.localRotation, FacingRotation(), shipTurnSpeed * Time.deltaTime);
+        }
+
+        /// <summary>
+        /// Pequeña flecha orbitando al jugador que muestra hacia dónde dispararán las armas HJKL.
+        /// </summary>
+        private void EnsureFacingIndicator()
+        {
+            Transform existing = transform.Find("FacingIndicator");
+            if (existing != null)
+            {
+                _facingIndicator = existing;
+                return;
+            }
+
+            GameObject go = new GameObject("FacingIndicator");
+            go.transform.SetParent(transform, false);
+            SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = ProceduralSprites.Triangle;
+            sr.color = new Color(0.4f, 1f, 1f, 0.85f);
+            sr.sortingOrder = 6;
+            _facingIndicator = go.transform;
+            UpdateFacingIndicator();
+        }
+
+        private void UpdateFacingIndicator()
+        {
+            if (_facingIndicator == null) return;
+            // Compensar la escala del jugador para que la flecha mida ~0.32u y quede a ~0.8u del centro
+            float parentScale = Mathf.Max(0.01f, transform.lossyScale.x);
+            _facingIndicator.localScale = Vector3.one * (0.32f / parentScale);
+            _facingIndicator.localPosition = (Vector3)(_facingDirection * (0.8f / parentScale));
+            float angle = Mathf.Atan2(_facingDirection.y, _facingDirection.x) * Mathf.Rad2Deg;
+            _facingIndicator.localRotation = Quaternion.Euler(0f, 0f, angle);
+        }
+
+        /// <summary>
+        /// Aplica un empuje externo que decae con el tiempo (ej: retroceso del Rail Gun).
+        /// </summary>
+        public void ApplyKnockback(Vector2 velocity)
+        {
+            _knockbackVelocity += velocity;
         }
 
         private void EnsureParryHitboxSetup()
@@ -240,6 +430,9 @@ namespace ArenaSurvivor.Entities
             // Asegurar indicador de Cooldown de Parry en el HUD
             UI.ParryCooldownUI.EnsureExists();
 
+            // Menú de testeo de power-ups (F1)
+            UI.UpgradeDebugMenu.EnsureExists();
+
             // Conectar cámara automáticamente si existe
             if (CameraShake.Instance != null)
             {
@@ -256,7 +449,13 @@ namespace ArenaSurvivor.Entities
                 _chainReflexesTimer -= Time.deltaTime;
             }
 
+            if (_invulnerableTimer > 0f)
+            {
+                _invulnerableTimer -= Time.deltaTime;
+            }
+
             ReadInput();
+            UpdateShipVisual();
             HandleAutoAimAndShooting();
         }
 
@@ -272,10 +471,23 @@ namespace ArenaSurvivor.Entities
                 return;
             }
 
+            Vector2 velocity;
+            if (_dashTimer > 0f)
+            {
+                _dashTimer -= Time.fixedDeltaTime;
+                velocity = _dashVelocity;
+                PushEnemiesOutOfDashPath();
+            }
+            else
+            {
+                velocity = (_moveInput * CurrentMoveSpeed) + _knockbackVelocity;
+            }
+            _knockbackVelocity = Vector2.MoveTowards(_knockbackVelocity, Vector2.zero, 45f * Time.fixedDeltaTime);
+
 #if UNITY_6000_0_OR_NEWER
-            _rb.linearVelocity = _moveInput * CurrentMoveSpeed;
+            _rb.linearVelocity = velocity;
 #else
-            _rb.velocity = _moveInput * CurrentMoveSpeed;
+            _rb.velocity = velocity;
 #endif
 
             // Mantener al jugador dentro de los límites de la arena sin trabar la velocidad
@@ -309,11 +521,6 @@ namespace ArenaSurvivor.Entities
                 if (kb.spaceKey.wasPressedThisFrame) parryPressed = true;
             }
 
-            if (UnityEngine.InputSystem.Mouse.current != null)
-            {
-                if (UnityEngine.InputSystem.Mouse.current.rightButton.wasPressedThisFrame) parryPressed = true;
-            }
-
             if (UnityEngine.InputSystem.Gamepad.current != null)
             {
                 Vector2 stick = UnityEngine.InputSystem.Gamepad.current.leftStick.ReadValue();
@@ -333,13 +540,18 @@ namespace ArenaSurvivor.Entities
                 input = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
             }
 
-            if (Input.GetKeyDown(KeyCode.Space) || Input.GetMouseButtonDown(1))
+            if (Input.GetKeyDown(KeyCode.Space))
             {
                 parryPressed = true;
             }
 #endif
 
             _moveInput = input.normalized;
+            if (_moveInput.sqrMagnitude > 0.01f)
+            {
+                _facingDirection = _moveInput;
+                UpdateFacingIndicator();
+            }
 
             if (parryPressed && _parryState == ParryState.Ready)
             {
@@ -357,6 +569,8 @@ namespace ArenaSurvivor.Entities
         {
             _parryState = ParryState.Active;
             _hasParriedSuccessfully = false;
+            _parryHitsThisActivation = 0;
+            _bossParriedThisActivation = false;
             OnParryStateChanged?.Invoke(_parryState);
 
             if (parryHitbox != null)
@@ -384,14 +598,15 @@ namespace ArenaSurvivor.Entities
                 _parryState = ParryState.Cooldown;
                 OnParryStateChanged?.Invoke(_parryState);
 
-                float successCooldown = parrySuccessCooldown * CurrentParryCooldownMultiplier;
+                float successCooldown = BaseParrySuccessCooldown * CurrentParryCooldownMultiplier;
                 _parryCooldownTotal = successCooldown;
                 _parryCooldownRemaining = successCooldown;
 
                 while (_parryCooldownRemaining > 0f)
                 {
                     yield return null;
-                    _parryCooldownRemaining -= Time.deltaTime;
+                    // Anclaje Defensivo: dentro de su zona el cooldown se consume casi al instante
+                    _parryCooldownRemaining -= Time.deltaTime / AnchorZoneController.GetPlayerParryCooldownMultiplier(transform.position);
                 }
 
                 _parryCooldownRemaining = 0f;
@@ -405,12 +620,8 @@ namespace ArenaSurvivor.Entities
                 _consecutiveParryStreak = 0;
                 OnParryStateChanged?.Invoke(_parryState);
 
-                // Modificador 'defensive_anchor': reduce el cooldown de fallo a 0.15s si está en la Zona de Extracción
-                float cooldownPenalty = parryMissCooldown * CurrentParryCooldownMultiplier;
-                if (ExtractionZone.IsZoneActive && UpgradeManager.Instance != null && UpgradeManager.Instance.GetLevel("defensive_anchor") > 0)
-                {
-                    cooldownPenalty = 0.15f * CurrentParryCooldownMultiplier;
-                }
+                // Penalización por fallo de Parry
+                float cooldownPenalty = BaseParryMissCooldown * CurrentParryCooldownMultiplier;
 
                 _parryCooldownTotal = cooldownPenalty;
                 _parryCooldownRemaining = cooldownPenalty;
@@ -418,7 +629,8 @@ namespace ArenaSurvivor.Entities
                 while (_parryCooldownRemaining > 0f)
                 {
                     yield return null;
-                    _parryCooldownRemaining -= Time.deltaTime;
+                    // Anclaje Defensivo: dentro de su zona el cooldown se consume casi al instante
+                    _parryCooldownRemaining -= Time.deltaTime / AnchorZoneController.GetPlayerParryCooldownMultiplier(transform.position);
                 }
 
                 _parryCooldownRemaining = 0f;
@@ -427,6 +639,39 @@ namespace ArenaSurvivor.Entities
             }
 
             _parryCoroutine = null;
+        }
+
+        /// <summary>
+        /// Procesa el desvío exitoso de un proyectil hostil durante la ventana de Parry.
+        /// </summary>
+        public void OnParryProjectile(EnemyProjectile projectile)
+        {
+            if (_parryState != ParryState.Active || projectile == null || projectile.IsParried)
+            {
+                return;
+            }
+
+            _hasParriedSuccessfully = true;
+            OnParrySuccess?.Invoke();
+
+            // Impacto breve y vuelta suave: congela 40 ms y recupera la velocidad en 80 ms
+            if (HitStopManager.Instance != null)
+            {
+                HitStopManager.Instance.TriggerHitStop(0.04f, 0.05f, 0.08f);
+            }
+
+            if (CameraShake.Instance != null)
+            {
+                CameraShake.Instance.Shake(0.18f, 0.3f);
+            }
+
+            Vector2 reflectDir = (Vector2)projectile.transform.position - (Vector2)transform.position;
+            if (reflectDir.sqrMagnitude < 0.01f)
+            {
+                reflectDir = -projectile.transform.right;
+            }
+
+            projectile.Reflect(reflectDir.normalized, CurrentParryDamage * 1.5f);
         }
 
         /// <summary>
@@ -445,26 +690,48 @@ namespace ArenaSurvivor.Entities
                 return;
             }
 
-            _hasParriedSuccessfully = true;
-            OnParrySuccess?.Invoke();
-
-            // Modificador 'vampirism': Racha de parries consecutivos para curar vida
-            _consecutiveParryStreak++;
-            int vampLevel = UpgradeManager.Instance != null ? UpgradeManager.Instance.GetLevel("vampirism") : 0;
-            if (vampLevel > 0)
+            // Un jefe solo recibe un Parry por activación aunque el aro toque a la vez escudo, núcleo y cañones
+            // (antes cada parte tocada aplicaba el daño de Parry por separado)
+            if (enemy.IsBoss && _bossParriedThisActivation)
             {
-                int requiredStreak = Mathf.Max(1, 4 - vampLevel);
-                if (_consecutiveParryStreak >= requiredStreak)
-                {
-                    _consecutiveParryStreak = 0;
-                    Heal(1);
-                }
+                return;
             }
 
-            // 1. Game Feel: Hit Stop dramático (ralentiza el tiempo a 0.1f durante 0.15s reales)
+            _hasParriedSuccessfully = true;
+
+            // Solo el primer enemigo de cada activación cuenta como Parry. Los demás (la cadena de intercambios de la
+            // Transposición de Masa o varios enemigos en el mismo aro) aplican su efecto de combate, pero no suman
+            // racha de Vampirismo ni energía de Parry.
+            bool isFirstHitThisActivation = _parryHitsThisActivation == 0;
+            _parryHitsThisActivation++;
+
+            if (isFirstHitThisActivation)
+            {
+                OnParrySuccess?.Invoke();
+
+                // Modificador 'vampirism' (nivel único): cada 5 parries consecutivos cura 1 vida
+                _consecutiveParryStreak++;
+                int vampLevel = UpgradeManager.Instance != null ? UpgradeManager.Instance.GetLevel("vampirism") : 0;
+                if (vampLevel > 0)
+                {
+                    const int requiredStreak = 5;
+                    if (_consecutiveParryStreak >= requiredStreak)
+                    {
+                        _consecutiveParryStreak = 0;
+                        Heal(1);
+                    }
+                }
+            }
+            else
+            {
+                // Efecto encadenado: mantiene el sonido de impacto sin contar como Parry
+                Managers.AudioManager.Instance?.PlayParryImpact();
+            }
+
+            // 1. Game Feel: Hit Stop con peso pero sin tirón (congela 60 ms y recupera la velocidad en 100 ms con ease-out)
             if (HitStopManager.Instance != null)
             {
-                HitStopManager.Instance.TriggerHitStop(0.15f, 0.1f);
+                HitStopManager.Instance.TriggerHitStop(0.06f, 0.05f, 0.1f);
             }
 
             // 2. Game Feel: Sacudida de cámara vigorosa
@@ -480,8 +747,7 @@ namespace ArenaSurvivor.Entities
             }
 
             // Modificador 'gravitational_anomaly' (Anomalía Gravitacional): Spawnea agujero negro en el punto de impacto
-            // TEMPORAL: Desactivado momentáneamente por problemas de optimización
-            /*
+            // (optimizado: el vórtice escanea a 10Hz en lugar de usar OnTriggerStay2D por enemigo)
             if (UpgradeManager.Instance != null && UpgradeManager.Instance.GetLevel("gravitational_anomaly") > 0)
             {
                 if (ObjectPooler.Instance != null && ObjectPooler.Instance.HasPool("BlackHole"))
@@ -489,16 +755,28 @@ namespace ArenaSurvivor.Entities
                     ObjectPooler.Instance.SpawnFromPool("BlackHole", enemy.transform.position, Quaternion.identity);
                 }
             }
-            */
 
             // Daño efectivo de parry escalado con 'heavy_caliber' (+20% por nivel)
             float effectiveParryDamage = CurrentParryDamage;
+            bool isHeavyOrBoss = enemy.IsHeavy;
+
+            // Jefes: el choque te empuja hacia atrás con fuerza (una vez por activación)
+            Vector2 awayFromBoss = Vector2.zero;
+            if (enemy.IsBoss)
+            {
+                _bossParriedThisActivation = true;
+                awayFromBoss = (Vector2)transform.position - (Vector2)enemy.transform.position;
+                awayFromBoss = awayFromBoss.sqrMagnitude > 0.001f ? awayFromBoss.normalized : -_facingDirection;
+                ApplyKnockback(awayFromBoss * bossParryKnockback);
+            }
+            Vector2 impulseDirection;
+            Vector3 burstOrigin; // Punto desde el que salen los fragmentos de 'mirror_refractor'
 
             // Comportamiento Exclusivo 'mass_transposition' (Transposición de Masa):
-            // En lugar de aplicar fuerza (Efecto Billar), intercambia posiciones y detona al enemigo en el origen.
-            // Ignora y anula completamente ConvertIntoParriedProjectile / AddForce.
+            // En lugar del empuje normal (Efecto Billar), intercambia posiciones y detona al enemigo en el origen.
+            // Naves pesadas, torretas y partes de jefes no pueden intercambiarse de posición: reciben el parry normal
             bool hasMassTransposition = UpgradeManager.Instance != null && UpgradeManager.Instance.GetLevel("mass_transposition") > 0;
-            if (hasMassTransposition)
+            if (hasMassTransposition && !isHeavyOrBoss)
             {
                 Vector3 playerOriginalPos = transform.position;
                 Vector3 enemyOriginalPos = enemy.transform.position;
@@ -537,54 +815,113 @@ namespace ArenaSurvivor.Entities
                     }
                 }
 
-                // 3. Detonar y destruir al enemigo sin aplicar fuerza alguna
-                enemy.Die();
+                // 3. Detonación: daño triple (explota si no lo resiste).
+                // Se convierte en proyectil desviado ANTES del daño para no anular las mejoras de parry:
+                // si muere cuenta como "enemigo desviado destruido" ('geometric_shrapnel') y si sobrevive
+                // sale despedido desde tu origen como bola de billar ('chain_reaction').
+                impulseDirection = ((Vector2)playerOriginalPos - (Vector2)enemyOriginalPos).normalized;
+                if (impulseDirection.sqrMagnitude < 0.01f) impulseDirection = Vector2.up;
+                burstOrigin = playerOriginalPos;
+
+                enemy.ConvertIntoParriedProjectile(impulseDirection, parryImpulseForce, effectiveParryDamage);
+                enemy.TakeDamage(effectiveParryDamage * 3f);
             }
             else
             {
-                // 3. Efecto Billar clásico: Dirección en base al movimiento actual o vector de empuje relativo
-                Vector2 impulseDirection = _moveInput.sqrMagnitude > 0.01f
+                // 3. Efecto de Parry: Dirección en base al movimiento actual o vector de empuje relativo
+                impulseDirection = _moveInput.sqrMagnitude > 0.01f
                     ? _moveInput.normalized
                     : ((Vector2)enemy.transform.position - (Vector2)transform.position).normalized;
+                burstOrigin = enemy.transform.position;
 
-                enemy.ConvertIntoParriedProjectile(impulseDirection, parryImpulseForce, effectiveParryDamage);
-
-                // Modificador 'mirror_refractor': Divide el proyectil desviado en abanico
-                int mirrorLevel = UpgradeManager.Instance != null ? UpgradeManager.Instance.GetLevel("mirror_refractor") : 0;
-                if (mirrorLevel > 0 && ObjectPooler.Instance != null)
+                if (isHeavyOrBoss)
                 {
-                    float[] angles = mirrorLevel >= 2 ? new float[] { -30f, -15f, 15f, 30f } : new float[] { -25f, 25f };
-                    for (int i = 0; i < angles.Length; i++)
+                    // Bosses y naves capitales: reciben daño directo de parry sin salir volando
+                    enemy.TakeDamage(effectiveParryDamage);
+                }
+                else
+                {
+                    // 1. Aplica daño directo de contraataque
+                    enemy.TakeDamage(effectiveParryDamage);
+
+                    // 2. Solo si sobrevive al daño (vida restante > 0), sale empujado sin explotar
+                    if (enemy.CurrentHealth > 0 && enemy.CurrentState != EnemyState.Dead)
                     {
-                        Vector2 angledDir = Quaternion.Euler(0f, 0f, angles[i]) * impulseDirection;
-                        GameObject extra = ObjectPooler.Instance.SpawnFromPool("Enemy_Red", enemy.transform.position, Quaternion.identity);
-                        if (extra != null && extra.TryGetComponent(out Enemy extraEnemy))
-                        {
-                            extra.transform.localScale = Vector3.one * 0.6f;
-                            extraEnemy.ConvertIntoParriedProjectile(angledDir, parryImpulseForce * 0.9f, effectiveParryDamage * 0.65f);
-                        }
+                        enemy.ConvertIntoParriedProjectile(impulseDirection, parryImpulseForce, effectiveParryDamage);
                     }
                 }
 
-                // Modificador 'parry_dash': Inyecta dash espectral invulnerable
+                // Modificador 'parry_dash': Inyecta dash espectral invulnerable (contra un jefe, siempre alejándote de él)
                 if (UpgradeManager.Instance != null && UpgradeManager.Instance.GetLevel("parry_dash") > 0)
                 {
-                    Vector2 dashDir = _moveInput.sqrMagnitude > 0.01f ? _moveInput : impulseDirection;
-                    StartCoroutine(ParryDashRoutine(dashDir));
+                    Vector2 dashDir = enemy.IsBoss ? awayFromBoss
+                        : (_moveInput.sqrMagnitude > 0.01f ? _moveInput : impulseDirection);
+                    StartParryDash(dashDir);
+                }
+            }
+
+            // Modificador 'mirror_refractor': Divide el proyectil desviado en abanico (también con Transposición de Masa)
+            int mirrorLevel = UpgradeManager.Instance != null ? UpgradeManager.Instance.GetLevel("mirror_refractor") : 0;
+            if (mirrorLevel > 0 && ObjectPooler.Instance != null && !isHeavyOrBoss)
+            {
+                float[] angles = mirrorLevel >= 2 ? new float[] { -30f, -15f, 15f, 30f } : new float[] { -25f, 25f };
+                for (int i = 0; i < angles.Length; i++)
+                {
+                    Vector2 angledDir = Quaternion.Euler(0f, 0f, angles[i]) * impulseDirection;
+                    GameObject extra = ObjectPooler.Instance.SpawnFromPool("Enemy_Red", burstOrigin, Quaternion.identity);
+                    if (extra != null && extra.TryGetComponent(out Enemy extraEnemy))
+                    {
+                        extra.transform.localScale = Vector3.one * 0.6f;
+                        extraEnemy.IsPhantomProjectile = true;
+                        extraEnemy.ConvertIntoParriedProjectile(angledDir, parryImpulseForce * 0.9f, effectiveParryDamage * 0.65f);
+                    }
                 }
             }
         }
 
-        private IEnumerator ParryDashRoutine(Vector2 dir)
+        private void StartParryDash(Vector2 dir)
         {
-            _isInvulnerable = true;
-#if UNITY_6000_0_OR_NEWER
-            _rb.linearVelocity = dir.normalized * 18f;
-#else
-            _rb.velocity = dir.normalized * 18f;
-#endif
-            yield return new WaitForSeconds(0.18f);
-            _isInvulnerable = false;
+            if (dir.sqrMagnitude < 0.0001f) dir = _facingDirection;
+
+            // El dash se aplica en FixedUpdate (antes la velocidad se sobrescribía en el siguiente paso físico y no se notaba).
+            // La invulnerabilidad dura el dash + un margen: antes terminaba justo al aterrizar y los enemigos de delante
+            // te golpeaban en ese mismo instante.
+            _dashVelocity = dir.normalized * parryDashSpeed;
+            _dashTimer = parryDashDuration;
+            GrantInvulnerability(parryDashDuration + parryDashGraceTime);
+        }
+
+        /// <summary>
+        /// Durante el dash, aparta hacia los lados a los enemigos ligeros que hay en la trayectoria para no aterrizar dentro de ellos.
+        /// </summary>
+        private void PushEnemiesOutOfDashPath()
+        {
+            Vector2 dashDir = _dashVelocity.sqrMagnitude > 0.0001f ? _dashVelocity.normalized : _facingDirection;
+            Vector2 lookAhead = _rb.position + (dashDir * (parryDashPushRadius * 0.5f));
+
+            ContactFilter2D filter = ContactFilter2D.noFilter;
+            filter.useTriggers = true;
+            int count = Physics2D.OverlapCircle(lookAhead, parryDashPushRadius, filter, DashHitsBuffer);
+
+            for (int i = 0; i < count; i++)
+            {
+                Collider2D col = DashHitsBuffer[i];
+                if (col == null || col.transform.IsChildOf(transform)) continue;
+                if (!col.TryGetComponent(out Enemy enemy) || enemy.IsHeavy || enemy.CurrentState != EnemyState.Chasing) continue;
+
+                Vector2 toEnemy = (Vector2)enemy.transform.position - _rb.position;
+                Vector2 side = new Vector2(-dashDir.y, dashDir.x);
+                if (Vector2.Dot(toEnemy, side) < 0f) side = -side;
+                enemy.ApplyKnockback(((side * 0.8f) + (dashDir * 0.6f)).normalized * parryDashPushForce);
+            }
+        }
+
+        /// <summary>
+        /// Concede invulnerabilidad durante 'duration' segundos sin acortar la que ya hubiera (I-Frames, dash, escudo).
+        /// </summary>
+        private void GrantInvulnerability(float duration)
+        {
+            _invulnerableTimer = Mathf.Max(_invulnerableTimer, duration);
         }
 
         /// <summary>
@@ -612,6 +949,11 @@ namespace ArenaSurvivor.Entities
                     _cachedTargetEnemy = ScanClosestEnemy();
                 }
 
+                if (_cachedTargetEnemy == null)
+                {
+                    _cachedTargetEnemy = ScanClosestEnemy(heavyTargetRadius, true);
+                }
+
                 if (_cachedTargetEnemy != null)
                 {
                     ShootAt(_cachedTargetEnemy.position);
@@ -621,6 +963,11 @@ namespace ArenaSurvivor.Entities
         }
 
         private Transform ScanClosestEnemy()
+        {
+            return ScanClosestEnemy(detectionRadius, false);
+        }
+
+        private Transform ScanClosestEnemy(float radius, bool heavyOnly)
         {
             Vector2 currentPos = transform.position;
 
@@ -634,13 +981,13 @@ namespace ArenaSurvivor.Entities
                 filter.useLayerMask = true;
             }
 
-            int hitCount = Physics2D.OverlapCircle(currentPos, detectionRadius, filter, RadarHitsBuffer);
+            int hitCount = Physics2D.OverlapCircle(currentPos, radius, filter, RadarHitsBuffer);
 
             // Fallback automático sin filtro de LayerMask por si en el Inspector la layer asignada difiere
             if (hitCount == 0)
             {
                 filter.useLayerMask = false;
-                hitCount = Physics2D.OverlapCircle(currentPos, detectionRadius, filter, RadarHitsBuffer);
+                hitCount = Physics2D.OverlapCircle(currentPos, radius, filter, RadarHitsBuffer);
             }
 
             Transform bestTarget = null;
@@ -656,7 +1003,7 @@ namespace ArenaSurvivor.Entities
                 Enemy enemy = col.GetComponent<Enemy>();
                 if (enemy == null) enemy = col.GetComponentInParent<Enemy>();
 
-                if (enemy != null && enemy.CurrentState == EnemyState.Chasing)
+                if (enemy != null && enemy.CurrentState == EnemyState.Chasing && !enemy.IsPhasingIn && (!heavyOnly || enemy.IsHeavy))
                 {
                     float sqrDist = ((Vector2)enemy.transform.position - currentPos).sqrMagnitude;
                     if (sqrDist < closestSqrDistance)
@@ -690,7 +1037,14 @@ namespace ArenaSurvivor.Entities
         /// </summary>
         public void TakeDamage(int damageAmount)
         {
-            if (_isInvulnerable || _isDead) return;
+            if (IsInvulnerable || _isDead) return;
+
+            // Energy Shield (botín de jefe): absorbe el golpe completo
+            if (_weapons != null && _weapons.TryAbsorbHit())
+            {
+                GrantInvulnerability(0.6f);
+                return;
+            }
 
             _currentLives -= damageAmount;
             _consecutiveParryStreak = 0;
@@ -714,7 +1068,7 @@ namespace ArenaSurvivor.Entities
 
         private IEnumerator TriggerIFrames()
         {
-            _isInvulnerable = true;
+            GrantInvulnerability(iFrameDuration);
             float elapsed = 0f;
 
             Color originalColor = spriteRenderer != null ? spriteRenderer.color : Color.white;
@@ -735,8 +1089,6 @@ namespace ArenaSurvivor.Entities
             {
                 spriteRenderer.color = originalColor;
             }
-
-            _isInvulnerable = false;
         }
 
         private void Die()
@@ -780,7 +1132,7 @@ namespace ArenaSurvivor.Entities
                 GameObject vfxObj = ObjectPooler.Instance.SpawnFromPool("DeathVFX", transform.position, Quaternion.identity);
                 if (vfxObj != null && vfxObj.TryGetComponent(out DeathVFX vfx))
                 {
-                    Color playerColor = spriteRenderer != null ? spriteRenderer.color : new Color(0.2f, 0.85f, 1f);
+                    Color playerColor = Ship.Color;
                     vfx.PlayEffect(playerColor, 45, 1.8f);
                 }
             }
@@ -802,14 +1154,14 @@ namespace ArenaSurvivor.Entities
         }
 
         /// <summary>
-        /// Recupera vidas del jugador (utilizado por Vampirismo u otras mejoras).
+        /// Recupera vidas del jugador (Vampirismo, botiquines que sueltan los enemigos).
         /// </summary>
         public void Heal(int amount)
         {
             if (_isDead) return;
             _currentLives = Mathf.Clamp(_currentLives + amount, 0, maxLives);
             OnLivesChanged?.Invoke(_currentLives, maxLives);
-            Debug.Log($"<color=lime><b>[VAMPIRISMO]</b> ¡Vida recuperada (+{amount})! Vidas actuales: {_currentLives}/{maxLives}</color>");
+            Debug.Log($"<color=lime><b>[VIDA]</b> ¡Vida recuperada (+{amount})! Vidas actuales: {_currentLives}/{maxLives}</color>");
         }
 
         private void OnDrawGizmosSelected()

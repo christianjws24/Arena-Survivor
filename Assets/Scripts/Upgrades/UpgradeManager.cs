@@ -19,7 +19,6 @@ namespace ArenaSurvivor.Upgrades
         [Header("Catálogo General de Mejoras")]
         [Tooltip("Lista de todos los ScriptableObjects de mejoras disponibles en el juego")]
         [SerializeField] private List<UpgradeData> allUpgrades = new List<UpgradeData>();
-
         // Estado global: ID de mejora -> Nivel actual (0 = no poseída)
         private readonly Dictionary<string, int> _activeUpgrades = new Dictionary<string, int>();
         private readonly Dictionary<string, UpgradeData> _upgradeMap = new Dictionary<string, UpgradeData>();
@@ -30,6 +29,9 @@ namespace ArenaSurvivor.Upgrades
 
         public IReadOnlyDictionary<string, int> ActiveUpgrades => _activeUpgrades;
 
+        /// <summary>Catálogo completo de mejoras (incluye armas y las que están fuera del pool).</summary>
+        public IEnumerable<UpgradeData> AllUpgrades => _upgradeMap.Values;
+
         private void Awake()
         {
             if (Instance != null && Instance != this)
@@ -39,8 +41,7 @@ namespace ArenaSurvivor.Upgrades
             }
 
             Instance = this;
-            InitializeCatalog();
-        }
+            InitializeCatalog();        }
 
         /// <summary>
         /// Mapea el catálogo por su ID único para consultas O(1).
@@ -171,6 +172,36 @@ namespace ArenaSurvivor.Upgrades
         }
 
         /// <summary>
+        /// Fija una mejora en un nivel exacto (0 = quitarla). Usado por el menú de testeo.
+        /// Para bajar de nivel la quita y la vuelve a subir nivel a nivel, así todos los sistemas reciben sus eventos normales.
+        /// Si choca con otra mejora excluyente equipada, esa otra se quita (como al aceptar el reemplazo en el modal).
+        /// </summary>
+        public void SetUpgradeLevel(string upgradeId, int targetLevel)
+        {
+            if (!_upgradeMap.TryGetValue(upgradeId, out UpgradeData data) || data == null) return;
+
+            targetLevel = Mathf.Clamp(targetLevel, 0, data.maxLevel);
+            int currentLevel = GetLevel(upgradeId);
+            if (targetLevel == currentLevel) return;
+
+            if (targetLevel < currentLevel)
+            {
+                RemoveUpgrade(upgradeId);
+                currentLevel = 0;
+            }
+
+            if (targetLevel > 0 && currentLevel == 0 && HasConflict(data, out UpgradeData conflict))
+            {
+                RemoveUpgrade(conflict.id);
+            }
+
+            for (int level = currentLevel; level < targetLevel; level++)
+            {
+                AddUpgrade(upgradeId);
+            }
+        }
+
+        /// <summary>
         /// Reemplaza una mejora activa por otra nueva (Resolución de conflicto de exclusión).
         /// </summary>
         public bool ReplaceUpgrade(string oldUpgradeId, string newUpgradeId)
@@ -188,15 +219,52 @@ namespace ArenaSurvivor.Upgrades
             var available = new List<UpgradeData>();
             foreach (var pair in _upgradeMap)
             {
-                // TEMPORAL: Mecánica de vórtice desactivada momentáneamente por problemas de optimización
-                if (pair.Key == "gravitational_anomaly") continue;
+                // DESCARTADAS: Mejoras basadas en la Zona de Extracción (removidas según requerimiento)
+                if (pair.Key == "scorched_earth") continue;
+                if (pair.Value == null || pair.Value.upgradeType == UpgradeType.ZoneModifier) continue;
 
-                if (!pair.Value.IsMaxLevel(GetLevel(pair.Key)))
-                {
-                    available.Add(pair.Value);
-                }
+                // Una mejora en su nivel máximo nunca se vuelve a ofrecer
+                int level = GetLevel(pair.Key);
+                if (pair.Value.IsMaxLevel(level)) continue;
+
+                // Las armas solo se obtienen como botín de jefe; una vez poseídas, sus niveles entran al pool normal
+                if (pair.Value.upgradeType == UpgradeType.Weapon && level <= 0) continue;
+
+                if (!MeetsRequirements(pair.Value)) continue;
+
+                available.Add(pair.Value);
             }
             return available;
+        }
+
+        /// <summary>
+        /// Comprueba los prerrequisitos (requiresAnyOf): basta con poseer una de las mejoras listadas.
+        /// </summary>
+        public bool MeetsRequirements(UpgradeData data)
+        {
+            if (data == null || data.requiresAnyOf == null || data.requiresAnyOf.Length == 0) return true;
+            for (int i = 0; i < data.requiresAnyOf.Length; i++)
+            {
+                if (HasUpgrade(data.requiresAnyOf[i])) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Construye la lista de opciones de botín (armas) de un jefe, ignorando IDs inexistentes o ya maximizados.
+        /// </summary>
+        public List<UpgradeData> GetDropOptions(IList<string> upgradeIds)
+        {
+            var results = new List<UpgradeData>();
+            if (upgradeIds == null) return results;
+            foreach (string id in upgradeIds)
+            {
+                if (_upgradeMap.TryGetValue(id, out UpgradeData data) && data != null && !data.IsMaxLevel(GetLevel(id)))
+                {
+                    results.Add(data);
+                }
+            }
+            return results;
         }
 
         /// <summary>
@@ -223,7 +291,6 @@ namespace ArenaSurvivor.Upgrades
         {
             var available = GetAvailableUpgrades();
             var results = new List<UpgradeData>();
-
             if (available.Count == 0) return results;
             if (available.Count <= count)
             {
@@ -231,13 +298,27 @@ namespace ArenaSurvivor.Upgrades
                 return results;
             }
 
-            // Muestreo sin reemplazo (evita duplicados)
+            // Muestreo ponderado por rareza sin reemplazo (evita duplicados; las mejoras Raras salen con menos probabilidad)
             var pool = new List<UpgradeData>(available);
             for (int i = 0; i < count && pool.Count > 0; i++)
             {
-                int randomIndex = Random.Range(0, pool.Count);
-                results.Add(pool[randomIndex]);
-                pool.RemoveAt(randomIndex);
+                float totalWeight = 0f;
+                for (int j = 0; j < pool.Count; j++) totalWeight += pool[j].SelectionWeight;
+
+                float roll = Random.Range(0f, totalWeight);
+                int pickedIndex = pool.Count - 1;
+                for (int j = 0; j < pool.Count; j++)
+                {
+                    roll -= pool[j].SelectionWeight;
+                    if (roll <= 0f)
+                    {
+                        pickedIndex = j;
+                        break;
+                    }
+                }
+
+                results.Add(pool[pickedIndex]);
+                pool.RemoveAt(pickedIndex);
             }
 
             return results;

@@ -26,32 +26,107 @@ namespace ArenaSurvivor.Entities
         [SerializeField] private EnemyData enemyData;
 
         [Header("Referencias Visuales")]
-        [SerializeField] private SpriteRenderer spriteRenderer;
+        [SerializeField] protected SpriteRenderer spriteRenderer;
 
         [Header("Visual Juice al ser Parried")]
-        [SerializeField] private Color parriedProjectileColor = new Color(0.2f, 1f, 1f, 1f); // Cian brillante
+        [SerializeField] protected Color parriedProjectileColor = new Color(0.2f, 1f, 1f, 1f); // Cian brillante
 
-        private Rigidbody2D _rb;
-        private Transform _playerTransform;
-        private float _currentHealth;
-        private EnemyState _currentState = EnemyState.Chasing;
-        private Color _defaultColor;
-        private Coroutine _hitFlashCoroutine;
-        private Coroutine _projectileRoutine;
-        private float _projectileDamage = 40f;
+        protected Rigidbody2D _rb;
+        protected Transform _playerTransform;
+        protected float _currentHealth;
+        protected EnemyState _currentState = EnemyState.Chasing;
+        protected Color _defaultColor;
+        // Tinte del destello de impacto. Blanco sirve para enemigos tintados; los sprites a color sin tinte usan otro tono para que se note.
+        protected Color _hitFlashColor = Color.white;
+        protected Coroutine _hitFlashCoroutine;
+        protected Coroutine _projectileRoutine;
+        protected float _projectileDamage = 40f;
+        protected float _maxHealth;
+        protected float _currentMoveSpeed;
+        protected float _stasisSpeedMultiplier = 1f;
 
         public EnemyData Data => enemyData;
         public EnemyState CurrentState => _currentState;
         public int ManagerIndex { get; set; } = -1;
         public Vector2 Position => transform.position;
+        public float CurrentHealth => _currentHealth;
+        public float MaxHealth => _maxHealth;
+        public bool IsPhantomProjectile { get; set; } = false;
+
+        /// <summary>
+        /// Naves capitales, torretas y jefes: reciben el daño del Parry pero no salen disparados (sin efecto billar)
+        /// y la onda de choque de subida de nivel les hace daño en lugar de destruirlos.
+        /// </summary>
+        public virtual bool IsHeavy => false;
+
+        /// <summary>
+        /// Jefes y sus partes (cañones, generadores): al hacerles Parry empujan al jugador hacia atrás.
+        /// </summary>
+        public virtual bool IsBoss => false;
+
+        /// <summary>
+        /// Mientras se materializa en pantalla es inmune y no ataca.
+        /// </summary>
+        public bool IsPhasingIn => _isPhasingIn;
+        protected bool _isPhasingIn;
+
+        /// <summary>
+        /// Multiplicador de cadencia de ataque (Anclaje Ofensivo acelera también a los enemigos dentro de su zona).
+        /// </summary>
+        protected float AttackRateMultiplier => Combat.AnchorZoneController.GetEnemyAttackMultiplier(transform.position);
+
+        /// <summary>
+        /// Daño de contacto/proyectil actual (base del EnemyData + bonus del Anclaje Ofensivo).
+        /// </summary>
+        public int OutgoingDamage
+        {
+            get
+            {
+                int baseDamage = enemyData != null ? enemyData.damage : 1;
+                return baseDamage + Combat.AnchorZoneController.GetEnemyDamageBonus(transform.position);
+            }
+        }
 
         // Evento global para desacoplar sistemas como PlayerEnergy, UI o misiones
         public static event System.Action<Enemy> OnEnemyDefeated;
 
-        private Vector2 _parriedVelocity;
-        private float _projectileTimer;
+        protected Vector2 _parriedVelocity;
+        protected float _projectileTimer;
+        // Objetivos ya golpeados en el lanzamiento actual como proyectil desviado (uno por enemigo / uno por jefe)
+        private readonly System.Collections.Generic.HashSet<int> _parryHitTargets = new System.Collections.Generic.HashSet<int>();
 
-        private void Awake()
+        // 'chain_reaction' (Relevo Técnico): nivel con el que este enemigo fue relevado (0 = no es un relevo)
+        //   Nv1: sale empujado como proyectil aliado
+        //   Nv2: además recibe daño por ticks mientras vuela
+        //   Nv3: además explota al terminar el empuje (o al morir en pleno vuelo) con daño FIJO, para no arrasar con todo
+        private const float RelayTickInterval = 0.3f;
+        private const float RelayTickDamageBonus = -0.7f; // 30% del daño base del jugador por tick
+        private const float RelayExplosionDamage = 300f;
+        private const float RelayExplosionRadius = 2.5f;
+        private int _chainRelayLevel;
+        private float _relayTickTimer;
+
+        /// <summary>
+        /// Jefe al que pertenece el enemigo (él mismo si es el jefe, su padre si es una parte). Null si no es de un jefe.
+        /// </summary>
+        public static Enemy GetBossRoot(Enemy enemy)
+        {
+            if (enemy == null) return null;
+            if (enemy is IShieldedBoss) return enemy;
+            return enemy.GetComponentInParent<IShieldedBoss>() as Enemy;
+        }
+
+        /// <summary>
+        /// Objetivo real de un impacto para las reglas de "un golpe por objetivo": si el enemigo es parte de un jefe con el
+        /// escudo activo, todo el daño acaba en ese mismo escudo, así que cuenta como el jefe (un solo objetivo).
+        /// </summary>
+        public static Enemy GetHitTarget(Enemy enemy)
+        {
+            Enemy boss = GetBossRoot(enemy);
+            return boss is IShieldedBoss shielded && shielded.IsShieldActive ? boss : enemy;
+        }
+
+        protected virtual void Awake()
         {
             _rb = GetComponent<Rigidbody2D>();
             if (_rb != null)
@@ -60,7 +135,7 @@ namespace ArenaSurvivor.Entities
                 _rb.useFullKinematicContacts = true;
             }
 
-            var col = GetComponent<BoxCollider2D>();
+            var col = GetComponent<Collider2D>();
             if (col != null)
             {
                 col.isTrigger = true;
@@ -78,9 +153,19 @@ namespace ArenaSurvivor.Entities
             ApplyConfiguration();
         }
 
-        public void OnSpawnFromPool()
+        /// <summary>
+        /// Asigna la configuración sin aplicarla (plantillas inactivas construidas en runtime o desde el editor).
+        /// </summary>
+        public void AssignData(EnemyData data)
+        {
+            enemyData = data;
+        }
+
+        public virtual void OnSpawnFromPool()
         {
             _currentState = EnemyState.Chasing;
+            IsPhantomProjectile = false;
+            _chainRelayLevel = 0;
 
             // Localizar al jugador si aún no está referenciado
             if (_playerTransform == null && PlayerController.Instance != null)
@@ -98,7 +183,7 @@ namespace ArenaSurvivor.Entities
             }
         }
 
-        public void OnReturnToPool()
+        public virtual void OnReturnToPool()
         {
             // Desregistrar del EnemyManager
             if (Managers.EnemyManager.Instance != null)
@@ -109,6 +194,8 @@ namespace ArenaSurvivor.Entities
             _currentState = EnemyState.Dead;
             _stasisSpeedMultiplier = 1f;
             _vortexSuppressionTimer = 0f;
+            _knockbackVelocity = Vector2.zero;
+            _isPhasingIn = false;
 
             if (_stasisCoroutine != null)
             {
@@ -131,7 +218,7 @@ namespace ArenaSurvivor.Entities
             ResetPhysics();
         }
 
-        private void ResetPhysics()
+        protected void ResetPhysics()
         {
             if (_rb != null)
             {
@@ -146,10 +233,7 @@ namespace ArenaSurvivor.Entities
             }
         }
 
-        private float _maxHealth;
-        private float _currentMoveSpeed;
-
-        private void ApplyConfiguration()
+        public virtual void ApplyConfiguration()
         {
             if (enemyData == null) return;
 
@@ -179,7 +263,7 @@ namespace ArenaSurvivor.Entities
         /// Cero llamadas nativas de Update() o FixedUpdate().
         /// Movimiento 100% vectorial con separación ligera tipo Boids integrada.
         /// </summary>
-        public void Tick(float deltaTime, Vector2 playerPos, Vector2 separation)
+        public virtual void Tick(float deltaTime, Vector2 playerPos, Vector2 separation)
         {
             if (_currentState == EnemyState.Dead) return;
 
@@ -195,12 +279,7 @@ namespace ArenaSurvivor.Entities
 
             if (_currentState == EnemyState.Chasing)
             {
-                Vector2 dir = (playerPos - (Vector2)transform.position).normalized;
-                float speed = _currentMoveSpeed * _stasisSpeedMultiplier;
-                Vector2 velocity = (dir * speed) + separation;
-
-                // Traslación matemática pura (sin colisiones nativas de Box2D entre enemigos)
-                transform.Translate(velocity * deltaTime, Space.World);
+                UpdateChasingBehavior(deltaTime, playerPos, separation);
             }
             else if (_currentState == EnemyState.ParriedProjectile)
             {
@@ -208,11 +287,68 @@ namespace ArenaSurvivor.Entities
                 // Fricción progresiva
                 _parriedVelocity = Vector2.MoveTowards(_parriedVelocity, Vector2.zero, 12f * deltaTime);
 
+                // Relevo Técnico Nv2+: daño por ticks mientras sale empujado
+                if (_chainRelayLevel >= 2)
+                {
+                    _relayTickTimer -= deltaTime;
+                    if (_relayTickTimer <= 0f)
+                    {
+                        _relayTickTimer = RelayTickInterval;
+                        float tickDamage = PlayerController.Instance != null ? PlayerController.Instance.GetDamage(RelayTickDamageBonus) : 10f;
+                        TakeDamage(tickDamage);
+                        if (_currentState == EnemyState.Dead) return;
+                    }
+                }
+
                 _projectileTimer -= deltaTime;
                 if (_projectileTimer <= 0f)
                 {
-                    Die();
+                    RecoverFromParry();
                 }
+            }
+        }
+
+        protected virtual void UpdateChasingBehavior(float deltaTime, Vector2 playerPos, Vector2 separation)
+        {
+            Vector2 dir = (playerPos - (Vector2)transform.position).normalized;
+            float speed = _currentMoveSpeed * _stasisSpeedMultiplier;
+            Vector2 velocity = (dir * speed) + separation;
+
+            // Traslación matemática pura (sin colisiones nativas de Box2D entre enemigos)
+            transform.Translate(velocity * deltaTime, Space.World);
+        }
+
+        /// <summary>
+        /// Restablece al enemigo a su comportamiento normal tras finalizar el impulso de parry.
+        /// El enemigo NUNCA explota automáticamente salvo que su salud sea menor o igual a 0.
+        /// </summary>
+        public virtual void RecoverFromParry()
+        {
+            if (_currentState == EnemyState.Dead) return;
+
+            // Si es un proyectil efímero generado por 'mirror_refractor', se recicla
+            if (IsPhantomProjectile)
+            {
+                Die();
+                return;
+            }
+
+            // Si su salud se agotó por daños recibidos, explota.
+            // Relevo Técnico Nv3: al terminar el empuje el enemigo relevado detona (la explosión se resuelve en Die)
+            if (_currentHealth <= 0f || _chainRelayLevel >= 3)
+            {
+                Die();
+                return;
+            }
+
+            // Si aún conserva salud, recupera el estado de persecución activo
+            _chainRelayLevel = 0;
+            _currentState = EnemyState.Chasing;
+            _parriedVelocity = Vector2.zero;
+
+            if (spriteRenderer != null)
+            {
+                spriteRenderer.color = _defaultColor;
             }
         }
 
@@ -220,11 +356,13 @@ namespace ArenaSurvivor.Entities
         /// Transforma al enemigo en un "Proyectil Aliado" impulsado (Efecto Billar).
         /// Pierde el comportamiento de persecución, no daña al jugador y destruye a otros enemigos al impactar.
         /// </summary>
-        public void ConvertIntoParriedProjectile(Vector2 impulseDirection, float impulseForce, float damage = 50f, float maxDuration = 2f)
+        public virtual void ConvertIntoParriedProjectile(Vector2 impulseDirection, float impulseForce, float damage = 50f, float maxDuration = 2f)
         {
-            if (_currentState == EnemyState.Dead) return;
+            if (_currentState == EnemyState.Dead || _currentHealth <= 0f) return;
 
             _currentState = EnemyState.ParriedProjectile;
+            _chainRelayLevel = 0;
+            _parryHitTargets.Clear();
             _projectileDamage = damage;
             _projectileTimer = maxDuration;
             _parriedVelocity = impulseDirection.normalized * impulseForce;
@@ -239,9 +377,9 @@ namespace ArenaSurvivor.Entities
         /// <summary>
         /// Aplica daño al enemigo con feedback de flash visual ("Juice").
         /// </summary>
-        public void TakeDamage(float amount)
+        public virtual void TakeDamage(float amount)
         {
-            if (_currentState == EnemyState.Dead) return;
+            if (_currentState == EnemyState.Dead || _isPhasingIn) return;
 
             _currentHealth -= amount;
 
@@ -254,23 +392,101 @@ namespace ArenaSurvivor.Entities
             }
         }
 
-        private IEnumerator HitFlashEffect()
+        protected virtual IEnumerator HitFlashEffect()
         {
             if (spriteRenderer != null)
             {
-                spriteRenderer.color = Color.white;
+                spriteRenderer.color = _hitFlashColor;
                 yield return new WaitForSeconds(0.06f);
                 spriteRenderer.color = (_currentState == EnemyState.ParriedProjectile) ? parriedProjectileColor : _defaultColor;
             }
             _hitFlashCoroutine = null;
         }
 
-        public void Die()
+        /// <summary>
+        /// Retira al enemigo del campo sin contarlo como derrota (sin energía ni metralla). Usado al limpiar la arena entre etapas.
+        /// </summary>
+        public virtual void Vanish()
+        {
+            if (_currentState == EnemyState.Dead) return;
+            _currentState = EnemyState.Dead;
+
+            if (ObjectPooler.Instance != null)
+            {
+                GameObject vfxObj = ObjectPooler.Instance.SpawnFromPool("DeathVFX", transform.position, Quaternion.identity);
+                if (vfxObj != null && vfxObj.TryGetComponent(out DeathVFX vfx))
+                {
+                    vfx.PlayEffect(enemyData != null ? enemyData.spriteColor : Color.white, 12, 0.8f);
+                }
+                ObjectPooler.Instance.ReturnToPool(gameObject);
+            }
+            else
+            {
+                gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>
+        /// Dispara un proyectil hostil desde el pool aplicando el daño saliente actual.
+        /// </summary>
+        protected EnemyProjectile FireProjectile(string poolTag, Vector2 origin, Vector2 direction, float speed)
+        {
+            if (ObjectPooler.Instance == null) return null;
+            if (direction.sqrMagnitude < 0.0001f) direction = Vector2.down;
+
+            GameObject bulletObj = ObjectPooler.Instance.SpawnFromPool(poolTag, origin, Quaternion.identity);
+            if (bulletObj != null && bulletObj.TryGetComponent(out EnemyProjectile proj))
+            {
+                proj.Launch(direction.normalized, speed, OutgoingDamage);
+                return proj;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Efecto holográfico de materialización ("Phases into screen"): inmune e inactivo hasta terminar.
+        /// </summary>
+        protected void BeginPhaseIn(float duration)
+        {
+            StartCoroutine(PhaseInRoutine(duration));
+        }
+
+        private IEnumerator PhaseInRoutine(float duration)
+        {
+            _isPhasingIn = true;
+            Color baseC = _defaultColor;
+            float elapsed = 0f;
+
+            while (elapsed < duration && _currentState != EnemyState.Dead)
+            {
+                elapsed += Time.deltaTime;
+                float t = elapsed / duration;
+                float pulse = Mathf.PingPong(elapsed * 12f, 1f);
+                float alpha = Mathf.Lerp(0.15f, 1f, t) * (0.6f + (pulse * 0.4f));
+                if (spriteRenderer != null)
+                {
+                    spriteRenderer.color = new Color(baseC.r, baseC.g, baseC.b, alpha);
+                }
+                yield return null;
+            }
+
+            if (spriteRenderer != null) spriteRenderer.color = baseC;
+            _isPhasingIn = false;
+        }
+
+        public virtual void Die()
         {
             if (_currentState == EnemyState.Dead) return;
 
             bool wasParriedProjectile = (_currentState == EnemyState.ParriedProjectile);
+            bool explodesAsRelay = wasParriedProjectile && _chainRelayLevel >= 3;
+            _chainRelayLevel = 0;
             _currentState = EnemyState.Dead;
+
+            if (explodesAsRelay)
+            {
+                DetonateChainRelay();
+            }
 
             // Game Feel: Sacudida al eliminar un enemigo solo si no es un proyectil de rebote
             if (CameraShake.Instance != null && enemyData != null && !wasParriedProjectile)
@@ -354,16 +570,36 @@ namespace ArenaSurvivor.Entities
                 {
                     if (otherEnemy.CurrentState == EnemyState.Chasing)
                     {
+                        // Un golpe por objetivo en cada lanzamiento (todas las partes de un jefe cuentan como uno).
+                        // Antes, al usar OnTriggerStay2D, los jefes y naves pesadas (que no salen despedidos) recibían
+                        // el daño en cada paso físico mientras el proyectil los atravesaba y la vida bajaba de golpe.
+                        Enemy boss = GetBossRoot(otherEnemy);
+                        int targetId = (boss != null ? boss : otherEnemy).GetInstanceID();
+                        if (!_parryHitTargets.Add(targetId)) return;
+
                         otherEnemy.TakeDamage(_projectileDamage);
 
+                        if (otherEnemy.IsHeavy)
+                        {
+                            // Rebota contra la nave pesada en lugar de seguir atravesándola
+                            Vector2 away = (Vector2)transform.position - (Vector2)otherEnemy.transform.position;
+                            if (away.sqrMagnitude < 0.001f) away = -_parriedVelocity;
+                            if (away.sqrMagnitude < 0.001f) away = Random.insideUnitCircle;
+                            _parriedVelocity = away.normalized * (_parriedVelocity.magnitude * 0.5f);
+                            return;
+                        }
+
                         // Modificador 'chain_reaction' (Relevo Técnico):
-                        // El enemigo golpeado se convierte a su vez en proyectil aliado rebotado
-                        if (ArenaSurvivor.Upgrades.UpgradeManager.Instance != null &&
-                            ArenaSurvivor.Upgrades.UpgradeManager.Instance.GetLevel("chain_reaction") > 0)
+                        // El enemigo golpeado se convierte a su vez en proyectil aliado rebotado (Nv2: ticks de daño, Nv3: explota)
+                        int relayLevel = ArenaSurvivor.Upgrades.UpgradeManager.Instance != null
+                            ? ArenaSurvivor.Upgrades.UpgradeManager.Instance.GetLevel("chain_reaction")
+                            : 0;
+                        if (relayLevel > 0)
                         {
                             Vector2 ricochetDir = ((Vector2)otherEnemy.transform.position - (Vector2)transform.position).normalized;
                             if (ricochetDir.sqrMagnitude < 0.001f) ricochetDir = Random.insideUnitCircle.normalized;
                             otherEnemy.ConvertIntoParriedProjectile(ricochetDir, 14f, _projectileDamage * 0.75f, 1.5f);
+                            otherEnemy.BeginChainRelay(relayLevel);
                         }
                     }
                 }
@@ -378,10 +614,83 @@ namespace ArenaSurvivor.Entities
 
                 if (col.TryGetComponent(out PlayerController player))
                 {
-                    int damageToDeal = enemyData != null ? enemyData.damage : 1;
-                    player.TakeDamage(damageToDeal);
+                    player.TakeDamage(OutgoingDamage);
                 }
             }
+        }
+
+        /// <summary>
+        /// Marca a este enemigo (ya convertido en proyectil aliado) como relevo de 'chain_reaction' con el nivel actual.
+        /// </summary>
+        public void BeginChainRelay(int level)
+        {
+            if (_currentState != EnemyState.ParriedProjectile) return;
+            _chainRelayLevel = level;
+            _relayTickTimer = RelayTickInterval;
+        }
+
+        /// <summary>
+        /// Relevo Técnico Nv3: explosión con daño FIJO (no escala con mejoras) a todo lo que haya alrededor.
+        /// Un solo impacto por enemigo y uno por jefe (si el escudo está activo, lo recibe el escudo).
+        /// </summary>
+        private void DetonateChainRelay()
+        {
+            Vector2 center = transform.position;
+            Collider2D[] hits = Physics2D.OverlapCircleAll(center, RelayExplosionRadius);
+            var damaged = new System.Collections.Generic.HashSet<int> { GetInstanceID() };
+
+            // 1. Escudos de energía primero (un impacto por jefe)
+            for (int i = 0; i < hits.Length; i++)
+            {
+                if (hits[i] == null || !hits[i].TryGetComponent(out BossEnergyShieldPart shield)) continue;
+                Enemy owner = shield.MainBoss;
+                if (owner == null || !damaged.Add(owner.GetInstanceID())) continue;
+                shield.TakeDamage(RelayExplosionDamage);
+            }
+
+            // 2. Enemigos y partes de jefes
+            for (int i = 0; i < hits.Length; i++)
+            {
+                if (hits[i] == null) continue;
+                Enemy target = hits[i].GetComponent<Enemy>();
+                if (target == null) target = hits[i].GetComponentInParent<Enemy>();
+                if (target == null || target.CurrentState == EnemyState.Dead) continue;
+                if (!damaged.Add(GetHitTarget(target).GetInstanceID())) continue;
+                target.TakeDamage(RelayExplosionDamage);
+            }
+
+            CameraShake.Instance?.Shake(0.12f, 0.18f);
+            if (ObjectPooler.Instance != null)
+            {
+                GameObject vfxObj = ObjectPooler.Instance.SpawnFromPool("DeathVFX", center, Quaternion.identity);
+                if (vfxObj != null && vfxObj.TryGetComponent(out DeathVFX vfx))
+                {
+                    vfx.PlayEffect(new Color(1f, 0.55f, 0.15f), 35, RelayExplosionRadius);
+                }
+            }
+        }
+
+        private Vector2 _knockbackVelocity;
+        private const float KnockbackDeceleration = 55f;
+
+        /// <summary>
+        /// Empuja al enemigo con una velocidad que decae rápido (ej: Rail Gun). Naves pesadas y jefes son inmunes.
+        /// Es independiente de Tick(), así funciona también en enemigos con movimiento propio.
+        /// </summary>
+        public void ApplyKnockback(Vector2 velocity)
+        {
+            if (_currentState == EnemyState.Dead || IsHeavy) return;
+            _knockbackVelocity = velocity;
+        }
+
+        /// <summary>
+        /// Avanza el empuje activo. Llamado por EnemyManager justo antes de Tick().
+        /// </summary>
+        public void UpdateKnockback(float deltaTime)
+        {
+            if (_knockbackVelocity.sqrMagnitude < 0.01f) return;
+            transform.Translate(_knockbackVelocity * deltaTime, Space.World);
+            _knockbackVelocity = Vector2.MoveTowards(_knockbackVelocity, Vector2.zero, KnockbackDeceleration * deltaTime);
         }
 
         private float _vortexSuppressionTimer;
@@ -398,13 +707,12 @@ namespace ArenaSurvivor.Entities
 
             if (spriteRenderer != null && _currentState == EnemyState.Chasing)
             {
-                // Feedback visual: tinte púrpura traslúcido indicando pérdida de hostilidad
-                spriteRenderer.color = new Color(0.7f, 0.4f, 1f, 0.85f);
+                // Feedback visual: tinte del color del vórtice (verde lima) indicando pérdida de hostilidad
+                spriteRenderer.color = Combat.BlackHoleAnomaly.VortexColor;
             }
         }
 
         private Coroutine _stasisCoroutine;
-        private float _stasisSpeedMultiplier = 1f;
 
         /// <summary>
         /// Aplica una ralentización masiva temporal (utilizado por el modificador 'stasis_nova').

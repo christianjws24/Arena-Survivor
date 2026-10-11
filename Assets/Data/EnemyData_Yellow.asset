@@ -15,8 +15,8 @@ MonoBehaviour:
   enemyName: Yellow Enemy
   colorType: 3
   spriteColor: {r: 0.98, g: 0.85, b: 0.15, a: 1}
-  maxHealth: 22
-  moveSpeed: 2
+  maxHealth: 110
+  moveSpeed: 3.2
   damage: 1
   visualScale: {x: 0.9, y: 0.9}
   deathShakeIntensity: 0.16

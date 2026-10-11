@@ -142,8 +142,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Combat.Projectile
   speed: 20
-  baseDamage: 10
-  damage: 20
+  baseDamage: 35
+  damage: 35
   maxLifetime: 3
   hitMask:
     serializedVersion: 2

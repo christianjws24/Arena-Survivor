@@ -15,11 +15,13 @@ namespace ArenaSurvivor.Combat
         [SerializeField] private Color parryFlashColor = new Color(0.3f, 1f, 1f, 0.6f);
 
         private CircleCollider2D _collider;
+        private Vector3 _baseScale = Vector3.one;
 
         private void Awake()
         {
             _collider = GetComponent<CircleCollider2D>();
             _collider.isTrigger = true;
+            _baseScale = transform.localScale;
 
             if (playerController == null)
             {
@@ -37,6 +39,13 @@ namespace ArenaSurvivor.Combat
 
         public void SetHitboxActive(bool active)
         {
+            if (active)
+            {
+                // Mejora 'expansive_parry' (Parry Expansivo): +20% de radio por nivel (escala collider y visual a la vez)
+                int expansiveLevel = Upgrades.UpgradeManager.Instance != null ? Upgrades.UpgradeManager.Instance.GetLevel("expansive_parry") : 0;
+                transform.localScale = _baseScale * (1f + (expansiveLevel * 0.20f));
+            }
+
             if (_collider != null) _collider.enabled = active;
 
             if (visualIndicator != null)
@@ -63,11 +72,30 @@ namespace ArenaSurvivor.Combat
             // Solo procesa colisiones si el hitbox está explícitamente activo
             if (_collider == null || !_collider.enabled) return;
 
-            if (other.TryGetComponent(out Enemy enemy))
+            if (other.TryGetComponent(out Entities.BossEnergyShieldPart shieldPart))
+            {
+                if (playerController != null && shieldPart.MainBoss != null)
+                {
+                    playerController.OnParryTriggered(shieldPart.MainBoss);
+                }
+                return;
+            }
+
+            Enemy enemy = other.GetComponent<Enemy>();
+            if (enemy == null) enemy = other.GetComponentInParent<Enemy>();
+
+            if (enemy != null)
             {
                 if (playerController != null)
                 {
                     playerController.OnParryTriggered(enemy);
+                }
+            }
+            else if (other.TryGetComponent(out EnemyProjectile projectile))
+            {
+                if (playerController != null)
+                {
+                    playerController.OnParryProjectile(projectile);
                 }
             }
         }

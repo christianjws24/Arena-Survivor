@@ -14,8 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Upgrades.UpgradeData
   id: chain_reaction
   upgradeName: "Relevo T\xE9cnico"
-  description: El enemigo desviado convierte a otros en proyectiles aliados al impactar.
-  maxLevel: 1
+  description: "Nv1: el enemigo desviado empuja como proyectiles aliados a los que golpea. Nv2: los empujados reciben da\xF1o por ticks. Nv3: adem\xE1s explotan al final del empuje (300 de da\xF1o fijo)."
+  maxLevel: 3
   upgradeType: 1
   exclusiveTag: 
   icon: {fileID: 0}

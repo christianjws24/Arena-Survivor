@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Upgrades.UpgradeData
   id: bounce
   upgradeName: "Geometr\xEDa de Rebote"
-  description: +1 rebote en las paredes de la arena por nivel.
+  description: "Tus disparos rebotan hacia un enemigo cercano tras impactar: +1 rebote por nivel."
   maxLevel: 4
   upgradeType: 0
   exclusiveTag: 

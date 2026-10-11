@@ -9,9 +9,16 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 0}
-  m_Name: Upgrade_ExpansiveParry
-  m_EditorClassIdentifier: Assembly-CSharp:ArenaSurvivor.Upgrades:ExpansiveParryUpgrade
-  upgradeName: Parry Expansivo
-  description: Aumenta el radio del CircleCollider2D del Parry en un 20%.
-  parryRadiusIncreasePercent: 0.2
+  m_Script: {fileID: 11500000, guid: 6da431d7905c1be4a983a546f502e860, type: 3}
+  m_Name: Upgrade_expansive_parry
+  m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Upgrades.UpgradeData
+  id: expansive_parry
+  upgradeName: "Parry Expansivo"
+  description: "+20% de radio del Parry por nivel."
+  maxLevel: 3
+  upgradeType: 0
+  exclusiveTag: 
+  requiresAnyOf: []
+  isPassiveWeapon: 0
+  icon: {fileID: 0}
+  themeColor: {r: 0.3, g: 1, b: 0.85, a: 1}

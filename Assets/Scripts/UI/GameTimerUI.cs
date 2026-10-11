@@ -38,6 +38,11 @@ namespace ArenaSurvivor.UI
             {
                 timeText = GetComponentInChildren<Text>();
             }
+
+            if (minuteBadgeText != null)
+            {
+                minuteBadgeText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            }
         }
 
         private void Start()
@@ -67,10 +72,11 @@ namespace ArenaSurvivor.UI
                 timeText.text = $"{minutes:00}:{seconds:00}";
             }
 
-            if (minuteBadgeText != null && DifficultyManager.Instance != null)
+            if (minuteBadgeText != null)
             {
-                float hpMult = DifficultyManager.Instance.GetHealthMultiplier();
-                minuteBadgeText.text = hpMult > 1.0f ? $"x{hpMult:F2} DIFICULTAD" : "TIEMPO";
+                // Etapa actual y cuenta atrás hasta el jefe
+                string stageLabel = WaveManager.Instance != null ? WaveManager.Instance.StageLabel : "";
+                minuteBadgeText.text = string.IsNullOrEmpty(stageLabel) ? "TIEMPO" : stageLabel;
             }
         }
     }

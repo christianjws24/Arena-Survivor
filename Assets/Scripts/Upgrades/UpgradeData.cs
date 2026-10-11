@@ -9,7 +9,17 @@ namespace ArenaSurvivor.Upgrades
     {
         StatModifier,       // Escala estadísticas numéricas acumulables (perforación, daño, rebotes)
         BehaviorUnlock,     // Desbloquea una nueva mecánica o comportamiento (dash, división, contagio)
-        ZoneModifier        // Modifica la zona de extracción (quemadura por DPS, estasis)
+        ZoneModifier,       // Modifica la zona de extracción (quemadura por DPS, estasis)
+        Weapon              // Arma adicional (HJKL) o equipo pasivo obtenido como botín de jefe
+    }
+
+    /// <summary>
+    /// Rareza de la mejora: define con qué frecuencia aparece entre las opciones de subida de nivel.
+    /// </summary>
+    public enum UpgradeRarity
+    {
+        Common,     // Aparece con normalidad
+        Rare        // Aparece mucho menos a menudo (ej: Vampirismo)
     }
 
     /// <summary>
@@ -38,6 +48,14 @@ namespace ArenaSurvivor.Upgrades
         [Tooltip("Tipo de mejora")]
         public UpgradeType upgradeType = UpgradeType.StatModifier;
 
+        [Tooltip("Rareza: las mejoras Raras salen con menos probabilidad al elegir las opciones de subida de nivel")]
+        public UpgradeRarity rarity = UpgradeRarity.Common;
+
+        /// <summary>
+        /// Peso relativo de selección al sortear opciones (Común = 1, Rara = 0.25).
+        /// </summary>
+        public float SelectionWeight => rarity == UpgradeRarity.Rare ? 0.25f : 1f;
+
         [Tooltip("Tag para exclusión mutua. Mejoras con el mismo tag no pueden coexistir (ej: 'Parry_Comportamiento'). Dejar vacío si no tiene exclusión.")]
         public string exclusiveTag = "";
 
@@ -45,6 +63,12 @@ namespace ArenaSurvivor.Upgrades
         /// Indica si la mejora pertenece a una categoría de comportamiento excluyente.
         /// </summary>
         public bool HasExclusiveTag => !string.IsNullOrEmpty(exclusiveTag);
+
+        [Tooltip("IDs de mejoras requeridas: solo se ofrece si el jugador posee al menos una de ellas (ej: 'stasis_nova' requiere un anclaje). Vacío = sin requisitos.")]
+        public string[] requiresAnyOf = new string[0];
+
+        [Tooltip("Solo para armas: si es true no ocupa una ranura HJKL (ej: Energy Shield, que se activa solo).")]
+        public bool isPassiveWeapon = false;
 
         [Header("Presentación Visual (UI)")]
         public Sprite icon;

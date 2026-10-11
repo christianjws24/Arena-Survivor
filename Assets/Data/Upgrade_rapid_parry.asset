@@ -14,7 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Upgrades.UpgradeData
   id: rapid_parry
   upgradeName: "Reflejos Cin\xE9ticos"
-  description: "Reduce el tiempo de enfriamiento (cooldown) del Parry en un 20% por nivel."
+  description: Reduce el tiempo de enfriamiento (cooldown) del Parry en un 20% por
+    nivel.
   maxLevel: 4
   upgradeType: 0
   exclusiveTag: 

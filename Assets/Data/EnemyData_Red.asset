@@ -15,8 +15,8 @@ MonoBehaviour:
   enemyName: Red Enemy
   colorType: 0
   spriteColor: {r: 0.95, g: 0.25, b: 0.25, a: 1}
-  maxHealth: 15
-  moveSpeed: 2
+  maxHealth: 100
+  moveSpeed: 2.4
   damage: 1
   visualScale: {x: 1, y: 1}
   deathShakeIntensity: 0.12

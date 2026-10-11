@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6da431d7905c1be4a983a546f502e860, type: 3}
+  m_Name: Upgrade_ofensive_anchor
+  m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Upgrades.UpgradeData
+  id: ofensive_anchor
+  upgradeName: "Anclaje Ofensivo"
+  description: "Cada 14s ancla una zona pequeña en tu posición durante 6s. Dentro de ella tú y los enemigos tienen +50% de daño y cadencia de disparo. Excluyente con Anclaje Defensivo."
+  maxLevel: 1
+  upgradeType: 1
+  exclusiveTag: Anclaje
+  requiresAnyOf: []
+  isPassiveWeapon: 0
+  icon: {fileID: 0}
+  themeColor: {r: 1, g: 0.35, b: 0.3, a: 1}

@@ -14,10 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ArenaSurvivor.Upgrades.UpgradeData
   id: gravitational_anomaly
   upgradeName: "Anomal\xEDa Gravitacional"
-  description: "Al acertar un Parry, crea un v\xF3rtice en el punto de impacto que
-    atrae a los enemigos cercanos durante 3 segundos."
+  description: "Al acertar un Parry, crea un vórtice que atrae y daña por ticks a los enemigos cercanos durante 3s (+1s, más radio y más daño por nivel). Nv2 destruye Worms; Nv3 también daña torretas y naves pesadas."
   maxLevel: 3
-  upgradeType: 2
+  upgradeType: 1
   exclusiveTag: 
   icon: {fileID: 0}
-  themeColor: {r: 0.6, g: 0.2, b: 1, a: 1}
+  themeColor: {r: 0.72, g: 1, b: 0.12, a: 1}

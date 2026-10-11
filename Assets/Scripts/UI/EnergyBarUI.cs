@@ -111,18 +111,15 @@ namespace ArenaSurvivor.UI
             }
 
             // Estados de color y texto
-            if (playerEnergy != null && playerEnergy.IsZoneActive)
+            int currentLevel = (playerEnergy != null ? playerEnergy.ExtractionsCompleted : 0) + 1;
+            if (current >= max && max > 0f)
             {
-                SetVisualState(zoneActiveColor, "⚠ ZONA ACTIVA: PERMANECE DENTRO (5s)");
-            }
-            else if (current >= max && max > 0f)
-            {
-                SetVisualState(readyColor, "⭐ ¡EXTRACCIÓN DESPLEGADA!");
+                SetVisualState(readyColor, $"⭐ ¡NIVEL {currentLevel} ALCANZADO! SELECCIONANDO HABILIDAD...");
             }
             else
             {
                 int percent = Mathf.FloorToInt(fillAmount * 100f);
-                SetVisualState(chargingColor, $"ENERGÍA: {percent}% (Elimina cuadrados o haz Parry)");
+                SetVisualState(chargingColor, $"NIVEL {currentLevel}  •  EXP: {percent}%  ({Mathf.FloorToInt(current)} / {Mathf.FloorToInt(max)})");
             }
         }
 
@@ -147,7 +144,8 @@ namespace ArenaSurvivor.UI
 
         private void HandleExtractionStarted()
         {
-            SetVisualState(zoneActiveColor, "⏳ EXTRACCIÓN EN CURSO (Aguanta dentro)");
+            int currentLevel = (playerEnergy != null ? playerEnergy.ExtractionsCompleted : 0) + 1;
+            SetVisualState(readyColor, $"⭐ NIVEL {currentLevel}: ELIGE UNA HABILIDAD");
         }
 
         private void HandleExtractionEnded()

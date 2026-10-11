@@ -18,6 +18,9 @@ MonoBehaviour:
     y este explota instant\xE1neamente en tu lugar de origen."
   maxLevel: 1
   upgradeType: 1
+  rarity: 1
   exclusiveTag: Parry_Comportamiento
+  requiresAnyOf: []
+  isPassiveWeapon: 0
   icon: {fileID: 0}
   themeColor: {r: 0.95, g: 0.2, b: 0.85, a: 1}

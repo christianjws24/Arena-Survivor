@@ -83,6 +83,18 @@ namespace ArenaSurvivor.UI
         private UpgradeData _conflictingUpgrade;
         private readonly List<GameObject> _spawnedInventoryItems = new List<GameObject>();
 
+        // Solicitudes que llegan mientras el modal está abierto (ej: subida de nivel durante la elección del botín de un jefe)
+        private class ChoiceRequest
+        {
+            public List<UpgradeData> Options;
+            public Action Callback;
+            public string Title;
+        }
+        private readonly Queue<ChoiceRequest> _pendingRequests = new Queue<ChoiceRequest>();
+        private string _defaultTitleText;
+
+        private const string LevelUpTitle = "⚡ ¡SUBIDA DE NIVEL! ⚡\n<size=15><color=#A0D8EF>SELECCIONA UNA MEJORA PARA REANUDAR EL COMBATE</color></size>\n<size=13><color=#FFFF88>(Presiona [1] / [2] / [3] en el teclado)</color></size>";
+
         public bool IsModalOpen => _isModalOpen;
 
         private void Awake()
@@ -203,6 +215,21 @@ namespace ArenaSurvivor.UI
         /// <param name="onFinishedCallback">Callback invocado al seleccionar una mejora para reanudar la ExtractionZone.</param>
         public void OpenLevelUpModal(Action onFinishedCallback)
         {
+            OpenChoiceModal(null, onFinishedCallback, null);
+        }
+
+        /// <summary>
+        /// Abre el modal con opciones fijas (ej: botín de jefe "elige 1 arma") o aleatorias si 'forcedOptions' es null.
+        /// Si el modal ya está abierto, la solicitud se encola y se abre al cerrar la actual.
+        /// </summary>
+        public void OpenChoiceModal(List<UpgradeData> forcedOptions, Action onFinishedCallback, string title)
+        {
+            if (_isModalOpen)
+            {
+                _pendingRequests.Enqueue(new ChoiceRequest { Options = forcedOptions, Callback = onFinishedCallback, Title = title });
+                return;
+            }
+
             if (modalPanel != null && !modalPanel.activeSelf) modalPanel.SetActive(true);
             if (!gameObject.activeSelf) gameObject.SetActive(true);
 
@@ -261,10 +288,17 @@ namespace ArenaSurvivor.UI
             // 1. Pausa estricta del juego
             Time.timeScale = 0f;
 
-            // 2. Obtener 3 opciones aleatorias válidas (sin duplicados y sin mejoras maximizadas)
-            List<UpgradeData> options = UpgradeManager.Instance != null 
-                ? UpgradeManager.Instance.GetRandomUpgrades(3) 
-                : new List<UpgradeData>();
+            // 2. Opciones: fijas (botín) o 3 aleatorias válidas (sin duplicados y sin mejoras maximizadas)
+            List<UpgradeData> options = forcedOptions ?? (UpgradeManager.Instance != null
+                ? UpgradeManager.Instance.GetRandomUpgrades(3)
+                : new List<UpgradeData>());
+
+            // Validación final: nunca mostrar una mejora que ya está en su nivel máximo
+            if (UpgradeManager.Instance != null)
+            {
+                options = options.FindAll(o => o != null && !o.IsMaxLevel(UpgradeManager.Instance.GetLevel(o.id)));
+            }
+            SetModalTitle(string.IsNullOrEmpty(title) ? LevelUpTitle : title);
 
             if (options.Count == 0)
             {
@@ -391,7 +425,7 @@ namespace ArenaSurvivor.UI
 
             if (typeTxt != null)
             {
-                typeTxt.text = $"[{data.upgradeType.ToString().ToUpper()}]";
+                typeTxt.text = GetTypeLabel(data, currentLevel);
                 typeTxt.color = new Color(data.themeColor.r, data.themeColor.g, data.themeColor.b, 0.85f);
             }
 
@@ -404,6 +438,38 @@ namespace ArenaSurvivor.UI
             {
                 cardImg.color = new Color(data.themeColor.r * 0.18f, data.themeColor.g * 0.18f, data.themeColor.b * 0.18f, 0.95f);
             }
+        }
+
+        private static string GetTypeLabel(UpgradeData data, int currentLevel)
+        {
+            if (data.upgradeType != UpgradeType.Weapon)
+            {
+                string rarityTag = data.rarity == UpgradeRarity.Rare ? " · RARO" : "";
+                return $"[{data.upgradeType.ToString().ToUpper()}{rarityTag}]";
+            }
+
+            if (data.isPassiveWeapon) return "[ARMA · PASIVA AUTOMÁTICA]";
+
+            var weapons = Combat.PlayerWeapons.Instance;
+            if (weapons != null)
+            {
+                int slot = weapons.FindSlotFor(data.id);
+                if (slot >= 0)
+                {
+                    string kind = Combat.PlayerWeapons.IsSpecialWeapon(data.id) ? "ESPECIAL" : "ARMA";
+                    return $"[{kind} · TECLA {Combat.PlayerWeapons.SlotKeyLabels[slot]} / {Combat.PlayerWeapons.SlotGamepadLabels[slot]}]";
+                }
+            }
+            return "[ARMA]";
+        }
+
+        private void SetModalTitle(string text)
+        {
+            if (modalPanel == null) return;
+            Text titleTxt = modalPanel.transform.Find("ModalTitle")?.GetComponent<Text>();
+            if (titleTxt == null) return;
+            if (_defaultTitleText == null) _defaultTitleText = titleTxt.text;
+            titleTxt.text = text;
         }
 
         /// <summary>
@@ -517,10 +583,20 @@ namespace ArenaSurvivor.UI
             // Restaurar tiempo
             Time.timeScale = 1f;
 
+            // Juego 100% teclado: ocultar el cursor al volver al combate
+            Cursor.visible = false;
+
             // Disparar callback de vuelta a la ExtractionZone para que detone el EMP y se devuelva al pool
             Action cb = _onFinishedCallback;
             _onFinishedCallback = null;
             cb?.Invoke();
+
+            // Abrir la siguiente elección pendiente, si la hay
+            if (!_isModalOpen && _pendingRequests.Count > 0)
+            {
+                ChoiceRequest next = _pendingRequests.Dequeue();
+                OpenChoiceModal(next.Options, next.Callback, next.Title);
+            }
         }
 
         #region Sistema de Advertencia de Reemplazo (Exclusión de Mejoras)

@@ -33,6 +33,9 @@ namespace ArenaSurvivor.Managers
 
         private bool _isGameOver;
         private bool _isPaused;
+        private bool _isDemoComplete;
+        private GameObject _demoCompletePanel;
+        private Action _onContinueAfterDemo;
 
         public bool IsGameOver => _isGameOver;
         public bool IsPaused => _isPaused;
@@ -63,6 +66,9 @@ namespace ArenaSurvivor.Managers
             {
                 PlayerController.Instance.OnPlayerDeath += HandlePlayerDeath;
             }
+
+            // Juego 100% teclado: el cursor solo aparece en menús
+            Cursor.visible = false;
         }
 
         private void OnDestroy()
@@ -75,6 +81,12 @@ namespace ArenaSurvivor.Managers
 
         private void Update()
         {
+            if (_isDemoComplete)
+            {
+                HandleDemoCompleteInput();
+                return;
+            }
+
             // Atajo de teclado 'R' o 'Espacio' para reiniciar rápidamente en Game Over
             if (_isGameOver)
             {
@@ -126,9 +138,9 @@ namespace ArenaSurvivor.Managers
 
             if (pauseRequested)
             {
-                // No pausar si el modal de subida de nivel está abierto
+                // No pausar si el modal de subida de nivel o el menú de testeo (F1) están abiertos
                 bool isLevelUpOpen = LevelUpUIManager.Instance != null && LevelUpUIManager.Instance.IsModalOpen;
-                if (!isLevelUpOpen)
+                if (!isLevelUpOpen && !UpgradeDebugMenu.BlocksPauseInput)
                 {
                     TogglePause();
                 }
@@ -190,6 +202,114 @@ namespace ArenaSurvivor.Managers
             Debug.Log("<color=red><b>[GAME OVER]</b> Pantalla de derrota mostrada. Haz clic en 'Reiniciar' o presiona 'R'.</color>");
         }
 
+        #region Demo Completada
+        /// <summary>
+        /// Pantalla final del Demo (tras derrotar al jefe de la última etapa). Pausa el juego y ofrece:
+        /// [C] Seguir jugando en Modo Libre, [R] Reiniciar, [M] Menú principal.
+        /// </summary>
+        public void ShowDemoComplete(Action onContinue)
+        {
+            if (_isGameOver) return;
+            _isDemoComplete = true;
+            _onContinueAfterDemo = onContinue;
+
+            HitStopManager.Instance?.CancelHitStop();
+            Time.timeScale = 0f;
+            Cursor.visible = true;
+            Cursor.lockState = CursorLockMode.None;
+
+            if (_demoCompletePanel == null) BuildDemoCompletePanel();
+            if (_demoCompletePanel != null) _demoCompletePanel.SetActive(true);
+            SelectFirstButton(_demoCompletePanel);
+            AudioManager.Instance?.PlayShockwaveEMP();
+        }
+
+        /// <summary>
+        /// Selecciona el primer botón de un panel para poder navegarlo con flechas + Enter (sin mouse).
+        /// </summary>
+        private static void SelectFirstButton(GameObject panel)
+        {
+            if (panel == null || UnityEngine.EventSystems.EventSystem.current == null) return;
+            Button first = panel.GetComponentInChildren<Button>();
+            if (first != null)
+            {
+                UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(first.gameObject);
+            }
+        }
+
+        private void HandleDemoCompleteInput()
+        {
+            bool cont = false, restart = false, menu = false;
+#if ENABLE_INPUT_SYSTEM
+            var kb = UnityEngine.InputSystem.Keyboard.current;
+            if (kb != null)
+            {
+                cont = kb.cKey.wasPressedThisFrame;
+                restart = kb.rKey.wasPressedThisFrame;
+                menu = kb.mKey.wasPressedThisFrame;
+            }
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+            cont |= Input.GetKeyDown(KeyCode.C);
+            restart |= Input.GetKeyDown(KeyCode.R);
+            menu |= Input.GetKeyDown(KeyCode.M);
+#endif
+            if (cont) ContinueAfterDemo();
+            else if (restart) RestartGame();
+            else if (menu) GoToMainMenu();
+        }
+
+        private void ContinueAfterDemo()
+        {
+            _isDemoComplete = false;
+            if (_demoCompletePanel != null) _demoCompletePanel.SetActive(false);
+            UnityEngine.EventSystems.EventSystem.current?.SetSelectedGameObject(null);
+            Time.timeScale = 1f;
+            Cursor.visible = false;
+            AudioManager.Instance?.PlayUIClick();
+
+            Action cb = _onContinueAfterDemo;
+            _onContinueAfterDemo = null;
+            cb?.Invoke();
+        }
+
+        private void BuildDemoCompletePanel()
+        {
+            Canvas canvas = UIBuild.FindHudCanvas();
+            if (canvas == null) return;
+
+            RectTransform root = UIBuild.Stretch("DemoCompletePanel", canvas.transform);
+            _demoCompletePanel = root.gameObject;
+            UIBuild.AddImage(_demoCompletePanel, new Color(0.02f, 0.03f, 0.06f, 0.9f), true);
+
+            RectTransform title = UIBuild.CreateRect("Title", root, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 130f), new Vector2(900f, 70f));
+            UIBuild.AddText(title.gameObject, "¡DEMO COMPLETADA!", 56, new Color(0.45f, 1f, 0.6f), TextAnchor.MiddleCenter);
+
+            string time = DifficultyManager.Instance != null ? DifficultyManager.Instance.FormattedTime : "--:--";
+            RectTransform sub = UIBuild.CreateRect("Subtitle", root, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 55f), new Vector2(900f, 60f));
+            UIBuild.AddText(sub.gameObject,
+                $"Derrotaste al CUSTODIUS y a la MOTHERSHIP\n<size=18><color=#A0D8EF>Tiempo total: {time}</color></size>",
+                24, Color.white, TextAnchor.MiddleCenter, FontStyle.Normal);
+
+            CreateDemoButton(root, "[C] SEGUIR JUGANDO (MODO LIBRE)", new Vector2(0f, -40f), new Color(0.15f, 0.55f, 0.35f), ContinueAfterDemo);
+            CreateDemoButton(root, "[R] REINICIAR", new Vector2(0f, -105f), new Color(0.2f, 0.3f, 0.5f), RestartGame);
+            CreateDemoButton(root, "[M] MENÚ PRINCIPAL", new Vector2(0f, -170f), new Color(0.35f, 0.2f, 0.3f), GoToMainMenu);
+
+            _demoCompletePanel.SetActive(false);
+        }
+
+        private static void CreateDemoButton(RectTransform parent, string label, Vector2 pos, Color color, UnityEngine.Events.UnityAction onClick)
+        {
+            RectTransform rect = UIBuild.CreateRect("Button", parent, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), pos, new Vector2(420f, 50f));
+            Image img = UIBuild.AddImage(rect.gameObject, color, true);
+            Button btn = rect.gameObject.AddComponent<Button>();
+            btn.targetGraphic = img;
+            btn.onClick.AddListener(onClick);
+            RectTransform txt = UIBuild.Stretch("Label", rect);
+            UIBuild.AddText(txt.gameObject, label, 20, Color.white, TextAnchor.MiddleCenter);
+        }
+        #endregion
+
         #region Control de Pausa y Escenas
         /// <summary>
         /// Alterna el estado de pausa del juego.
@@ -232,6 +352,7 @@ namespace ArenaSurvivor.Managers
 
             Cursor.visible = true;
             Cursor.lockState = CursorLockMode.None;
+            SelectFirstButton(pausePanel);
 
             AudioManager.Instance?.PlayUIClick();
             Debug.Log("<color=cyan><b>[PAUSA]</b> Partida pausada.</color>");
@@ -246,6 +367,10 @@ namespace ArenaSurvivor.Managers
             _isPaused = false;
 
             Time.timeScale = 1f;
+            Cursor.visible = false;
+
+            // Evitar que Espacio (Parry) vuelva a "pulsar" el botón seleccionado del menú de pausa
+            UnityEngine.EventSystems.EventSystem.current?.SetSelectedGameObject(null);
 
             if (pausePanel != null)
             {

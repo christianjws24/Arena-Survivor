@@ -41,6 +41,7 @@ namespace ArenaSurvivor.Entities
 
         private Color _originalPlayerColor = Color.white;
         private Coroutine _tensionRingCoroutine;
+        private bool _parryConnected; // el Parry de la activación actual acertó: su cooldown no es castigo
 
         private void Awake()
         {
@@ -54,6 +55,12 @@ namespace ArenaSurvivor.Entities
 
             if (tensionRingObject != null)
             {
+                // Anillo segmentado en pixel art (mismas 2 u de tamaño que Ring.png; conserva su color)
+                Sprite ring = Combat.FxSprites.RingTension;
+                if (ring != null && tensionRingObject.TryGetComponent(out SpriteRenderer ringRenderer))
+                {
+                    ringRenderer.sprite = ring;
+                }
                 tensionRingObject.SetActive(false);
             }
         }
@@ -65,6 +72,13 @@ namespace ArenaSurvivor.Entities
 
         private void Start()
         {
+            // PlayerController.Awake puede haber cambiado el renderer al sprite de la nave (hijo "ShipVisual")
+            if (player != null && player.ShipRenderer != null)
+            {
+                playerSpriteRenderer = player.ShipRenderer;
+                _originalPlayerColor = playerSpriteRenderer.color;
+            }
+
             SubscribeEvents();
         }
 
@@ -104,14 +118,17 @@ namespace ArenaSurvivor.Entities
             {
                 case ParryState.Active:
                     // 1. Activar animación de contracción del anillo de tensión
+                    _parryConnected = false;
                     StartTensionRing();
                     RestorePlayerOpacity();
                     break;
 
                 case ParryState.Cooldown:
-                    // Si el parry falló, ocultar anillo y aplicar feedback de vulnerabilidad
+                    // Solo un Parry fallado deja la nave apagada (castigo). Tras un acierto la nave sigue nítida:
+                    // el cooldown ya se ve en el HUD y apagarla hacía que el éxito se sintiera "pegajoso".
                     StopTensionRing();
-                    ApplyCooldownVulnerability();
+                    if (_parryConnected) RestorePlayerOpacity();
+                    else ApplyCooldownVulnerability();
                     break;
 
                 case ParryState.Ready:
@@ -128,6 +145,8 @@ namespace ArenaSurvivor.Entities
         /// </summary>
         private void HandleParrySuccess()
         {
+            _parryConnected = true;
+
             // Ocultar el anillo de tensión inmediatamente
             StopTensionRing();
 
@@ -172,8 +191,9 @@ namespace ArenaSurvivor.Entities
                 elapsed += Time.deltaTime;
                 float t = Mathf.Clamp01(elapsed / parryActiveDuration);
 
-                // Contracción lineal o ligeramente suavizada hacia la escala final (1.0)
-                float currentScale = Mathf.Lerp(tensionStartScale, tensionEndScale, t);
+                // Contracción ease-out: se cierra rápido al pulsar y se asienta al final de la ventana
+                float eased = 1f - ((1f - t) * (1f - t));
+                float currentScale = Mathf.Lerp(tensionStartScale, tensionEndScale, eased);
                 tensionRingObject.transform.localScale = Vector3.one * currentScale;
 
                 yield return null;

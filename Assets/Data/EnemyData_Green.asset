@@ -15,8 +15,8 @@ MonoBehaviour:
   enemyName: Green Enemy
   colorType: 1
   spriteColor: {r: 0.25, g: 0.9, b: 0.35, a: 1}
-  maxHealth: 8
-  moveSpeed: 4
+  maxHealth: 70
+  moveSpeed: 5.8
   damage: 1
   visualScale: {x: 0.75, y: 0.75}
   deathShakeIntensity: 0.08

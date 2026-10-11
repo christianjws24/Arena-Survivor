@@ -29,9 +29,37 @@ namespace ArenaSurvivor.Combat
         private Coroutine _expandCoroutine;
         private bool _isReturning;
 
+        // Pixel art: fotogramas que miden exactamente el diámetro de su aro (de 1.6 a 9 unidades). Cada frame se elige el
+        // fotograma de tamaño más cercano y se escala al diámetro exacto de ese instante: expansión continua sin estirar los píxeles.
+        private Sprite[] _frames;
+        private float _baseDiameter = 2f; // diámetro del sprite del prefab (Ring.png) con escala 1
+
         private void Awake()
         {
             _spriteRenderer = GetComponent<SpriteRenderer>();
+            if (_spriteRenderer != null && _spriteRenderer.sprite != null) _baseDiameter = _spriteRenderer.sprite.bounds.size.x;
+            _frames = FxSprites.Shockwave;
+        }
+
+        /// <summary>Ease-out cúbico: la onda sale disparada del impacto y frena al abrirse.</summary>
+        private static float EaseOut(float t) => 1f - ((1f - t) * (1f - t) * (1f - t));
+
+        private void ApplyExpansion(float t)
+        {
+            float diameter = Mathf.Lerp(startScale, targetScale, EaseOut(t)) * _baseDiameter;
+            if (_frames == null)
+            {
+                transform.localScale = Vector3.one * (diameter / _baseDiameter);
+                return;
+            }
+
+            // Los fotogramas están repartidos por diámetro: se elige el de tamaño más parecido al actual
+            float first = _frames[0].bounds.size.x;
+            float last = _frames[_frames.Length - 1].bounds.size.x;
+            float k = Mathf.InverseLerp(first, last, diameter) * (_frames.Length - 1);
+            Sprite frame = _frames[Mathf.Clamp(Mathf.RoundToInt(k), 0, _frames.Length - 1)];
+            _spriteRenderer.sprite = frame;
+            transform.localScale = Vector3.one * (diameter / Mathf.Max(0.01f, frame.bounds.size.x));
         }
 
         public void OnSpawnFromPool()
@@ -39,7 +67,7 @@ namespace ArenaSurvivor.Combat
             _isReturning = false;
             if (_spriteRenderer == null) _spriteRenderer = GetComponent<SpriteRenderer>();
 
-            transform.localScale = Vector3.one * startScale;
+            ApplyExpansion(0f);
             _spriteRenderer.color = waveColor;
 
             if (_expandCoroutine != null) StopCoroutine(_expandCoroutine);
@@ -66,13 +94,10 @@ namespace ArenaSurvivor.Combat
                 elapsed += Time.unscaledDeltaTime;
                 float t = Mathf.Clamp01(elapsed / duration);
 
-                // Expansión no lineal (Ease Out Quad para sensación de impacto explosivo)
-                float scaleT = 1f - Mathf.Pow(1f - t, 2f);
-                float currentScale = Mathf.Lerp(startScale, targetScale, scaleT);
-                transform.localScale = Vector3.one * currentScale;
+                ApplyExpansion(t);
 
-                // Desvanecimiento progresivo del Alpha (1 a 0)
-                float alpha = Mathf.Lerp(1f, 0f, t);
+                // Se mantiene nítida mientras se abre y se desvanece al final (1 - t²)
+                float alpha = 1f - (t * t);
                 _spriteRenderer.color = new Color(waveColor.r, waveColor.g, waveColor.b, alpha);
 
                 yield return null;
